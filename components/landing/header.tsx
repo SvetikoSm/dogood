@@ -34,10 +34,10 @@ export function Header() {
         className="h-0.5 w-full bg-gradient-to-r from-dogood-pink via-dogood-yellow to-dogood-pink"
         aria-hidden
       />
-      <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-8">
+      <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-3 py-2.5 sm:gap-4 sm:px-6 sm:py-3 lg:px-8">
         <a
           href="#hero"
-          className="font-display text-xl font-bold uppercase tracking-[0.18em] text-fuchsia-700 sm:text-2xl"
+          className="rounded-full border border-fuchsia-200/80 bg-white/80 px-3 py-1.5 font-display text-lg font-bold uppercase tracking-[0.16em] text-fuchsia-700 shadow-sm sm:text-2xl"
         >
           DOGOOD
         </a>
@@ -55,17 +55,17 @@ export function Header() {
         <DogoodButtonLink
           href="#order"
           variant="primary"
-          className="shrink-0 px-4 py-2 text-xs sm:px-6 sm:text-sm"
+          className="shrink-0 px-3 py-2 text-[11px] sm:px-6 sm:text-sm"
         >
           заказать футболку
         </DogoodButtonLink>
       </div>
-      <nav className="flex justify-center gap-3 overflow-x-auto border-t border-fuchsia-200/70 px-4 py-2 lg:hidden">
+      <nav className="flex gap-2 overflow-x-auto border-t border-fuchsia-200/70 bg-white/75 px-3 py-2.5 lg:hidden">
         {nav.map((item) => (
           <a
             key={item.href}
             href={item.href}
-            className="whitespace-nowrap text-[10px] font-semibold uppercase tracking-wide text-neutral-700 hover:text-dogood-pink"
+            className="whitespace-nowrap rounded-full border border-fuchsia-200 bg-white px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-neutral-700 transition-colors hover:border-dogood-pink/60 hover:text-dogood-pink"
           >
             {item.label}
           </a>

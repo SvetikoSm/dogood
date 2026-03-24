@@ -62,32 +62,15 @@ export function CatalogFeature({ designs }: { designs: CatalogDesign[] }) {
             className="outline-none data-[state=inactive]:hidden"
           >
             <div className="grid min-w-0 gap-10 lg:grid-cols-2 lg:gap-12">
-              <div className="flex min-w-0 flex-col gap-5">
+              <div className="flex min-w-0 flex-col gap-4 lg:gap-5">
                 <Badge variant="outline" className="w-fit border-fuchsia-200 bg-white">
                   {tab.design.priceRub.toLocaleString("ru-RU")} ₽
                 </Badge>
                 <h3 className="font-display text-2xl font-bold uppercase tracking-tight text-foreground sm:text-4xl lg:text-5xl">
                   {tab.design.name}
                 </h3>
-                <p className="text-muted-foreground lg:text-lg">
-                  {tab.design.shortLine}
-                </p>
-                <ul className="list-inside list-disc space-y-2 text-sm text-muted-foreground lg:text-base">
-                  {tab.design.detailBullets.map((line) => (
-                    <li key={line} className="marker:text-dogood-pink">
-                      {line}
-                    </li>
-                  ))}
-                </ul>
-                <p className="text-xs text-muted-foreground">
-                  Фото выше — примеры ткани и кроя. Свои снимки для принта загружаете
-                  в форме заказа: 2–3 кадра (морда + рост).
-                </p>
-                <Button asChild size="lg" className="mt-2 w-fit gap-2 bg-primary">
-                  <a href={`/?style=${tab.value}#order`}>Оформить в этом стиле</a>
-                </Button>
               </div>
-              <div className="flex min-w-0 w-full flex-col gap-4">
+              <div className="flex min-w-0 w-full flex-col gap-4 lg:row-span-2">
                 <ProductImageCarousel
                   key={tab.value}
                   imageMain={tab.design.imageMain}
@@ -111,6 +94,25 @@ export function CatalogFeature({ designs }: { designs: CatalogDesign[] }) {
                     Следующий стиль →
                   </Button>
                 </div>
+              </div>
+              <div className="flex min-w-0 flex-col gap-4 lg:gap-5">
+                <p className="text-muted-foreground lg:text-lg">
+                  {tab.design.shortLine}
+                </p>
+                <ul className="list-inside list-disc space-y-2 text-sm text-muted-foreground lg:text-base">
+                  {tab.design.detailBullets.map((line) => (
+                    <li key={line} className="marker:text-dogood-pink">
+                      {line}
+                    </li>
+                  ))}
+                </ul>
+                <p className="text-xs text-muted-foreground">
+                  Фото выше — примеры ткани и кроя. Свои снимки для принта загружаете
+                  в форме заказа: 2–3 кадра (морда + рост).
+                </p>
+                <Button asChild size="lg" className="mt-2 w-fit gap-2 bg-primary">
+                  <a href={`/?style=${tab.value}#order`}>Оформить в этом стиле</a>
+                </Button>
               </div>
             </div>
           </Tabs.Content>

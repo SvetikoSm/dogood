@@ -9,6 +9,7 @@ import { OrderForm } from "@/components/landing/order-form";
 import { ProductBenefits } from "@/components/landing/product-benefits";
 import { Reviews } from "@/components/landing/reviews";
 import { Shelters } from "@/components/landing/shelters";
+import { MobileAccordionSection } from "@/components/ui/mobile-accordion-section";
 
 export default function Home() {
   return (
@@ -17,12 +18,24 @@ export default function Home() {
       <main className="site-color-bg flex-1">
         <Hero />
         <Catalog />
-        <HowItWorks />
-        <About />
-        <Shelters />
-        <ProductBenefits />
-        <Reviews />
-        <Faq />
+        <MobileAccordionSection title="Как это работает">
+          <HowItWorks />
+        </MobileAccordionSection>
+        <MobileAccordionSection title="Миссия">
+          <About />
+        </MobileAccordionSection>
+        <MobileAccordionSection title="Приюты">
+          <Shelters />
+        </MobileAccordionSection>
+        <MobileAccordionSection title="Почему наши вещи живут долго">
+          <ProductBenefits />
+        </MobileAccordionSection>
+        <MobileAccordionSection title="Отзывы">
+          <Reviews />
+        </MobileAccordionSection>
+        <MobileAccordionSection title="FAQ">
+          <Faq />
+        </MobileAccordionSection>
         <OrderForm />
       </main>
       <Footer />
