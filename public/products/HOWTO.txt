@@ -1,0 +1,23 @@
+ФОТО ДЛЯ ВИТРИНЫ — БЕЗ ПРАВОК В КОДЕ
+=====================================
+
+У каждого стиля своя папка:
+
+  speed  →  «Я — скорость»
+  rainy  →  «No rainy days»
+  life   →  «Life is better»
+
+Положите файлы с ТАКИМИ именами:
+
+  main.jpg   (или main.webp / main.png / cover.jpg)
+             — большое фото в табе
+
+  1.jpg, 2.jpg, 3.jpg …  (можно .webp или .png вместо .jpg)
+             — маленькие фото в галерее (по порядку)
+
+Пока вы ничего не положили, на сайте показываются примеры с интернета.
+
+Путь к папкам на диске:
+  dogood-v2\public\products\speed\
+  dogood-v2\public\products\rainy\
+  dogood-v2\public\products\life\

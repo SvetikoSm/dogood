@@ -1,0 +1,15 @@
+Order form style images
+=======================
+
+Put style preview photos for the order form here:
+
+- public/order-form-styles/speed/2.jpg  -> "Я — скорость"
+- public/order-form-styles/rainy/2.jpg  -> "No rainy days"
+- public/order-form-styles/life/2.jpg   -> "Life is better"
+
+Recommended image:
+- square crop
+- at least 800x800
+- jpg or webp
+
+If a local file is missing, the site falls back to existing catalog/demo images.
