@@ -378,10 +378,10 @@ export function OrderForm() {
                                     }}
                                   />
                                 </button>
-                                <span className="absolute left-2 top-2 rounded-full bg-white/90 px-2 py-0.5 text-[10px] font-semibold text-fuchsia-700 shadow-sm">
-                                  {s.label}
-                                </span>
                               </div>
+                              <span className="block text-center text-[10px] font-semibold leading-tight text-fuchsia-700 sm:text-[11px]">
+                                {s.label}
+                              </span>
                               <div className="mt-1 flex items-center justify-center">
                                 <span
                                   className={`h-3.5 w-3.5 rounded-full border transition ${

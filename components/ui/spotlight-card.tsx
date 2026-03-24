@@ -93,6 +93,9 @@ export function GlowCard({
   const innerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    if (typeof window !== "undefined" && window.matchMedia("(pointer: coarse)").matches) {
+      return;
+    }
     const syncPointer = (e: PointerEvent) => {
       const { clientX: x, clientY: y } = e;
       if (cardRef.current) {
@@ -143,10 +146,10 @@ export function GlowCard({
       backgroundSize:
         "calc(100% + (2 * var(--border-size))) calc(100% + (2 * var(--border-size)))",
       backgroundPosition: "50% 50%",
-      backgroundAttachment: "fixed",
+      backgroundAttachment: "scroll",
       border: "var(--border-size) solid var(--backup-border)",
       position: "relative",
-      touchAction: "none",
+      touchAction: "auto",
     };
     if (width !== undefined) {
       baseStyles.width = typeof width === "number" ? `${width}px` : width;

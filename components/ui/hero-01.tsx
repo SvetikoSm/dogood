@@ -55,13 +55,13 @@ export function HeroSection01() {
         </div>
       </div>
 
-      <div className="pointer-events-none absolute bottom-0 left-1/2 z-20 -translate-x-1/2">
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 flex justify-center">
         <Image
           src="/products/hero-person.png"
           alt="Амбассадор DOGOOD"
           width={520}
           height={900}
-          className="h-[51vh] w-auto object-contain sm:h-[55vh] lg:h-[59vh]"
+          className="block h-[51vh] w-auto object-contain sm:h-[55vh] lg:h-[59vh]"
           unoptimized
           priority
         />
