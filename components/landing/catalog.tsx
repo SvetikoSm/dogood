@@ -1,9 +1,13 @@
 import { CatalogFeature } from "@/components/blocks/catalog-feature";
 import { Section } from "@/components/ui/section";
 import { getCatalogDesignsWithImages } from "@/lib/catalog-images";
+import { printStyles } from "@/lib/landing-data";
 
 export default async function Catalog() {
-  const designs = getCatalogDesignsWithImages();
+  const styleOrder = new Map<string, number>(printStyles.map((s, idx) => [s.value, idx]));
+  const designs = getCatalogDesignsWithImages().sort(
+    (a, b) => (styleOrder.get(a.id) ?? 999) - (styleOrder.get(b.id) ?? 999),
+  );
 
   return (
     <Section

@@ -1,6 +1,7 @@
 "use client";
 
 import * as Tabs from "@radix-ui/react-tabs";
+import { useMemo, useState } from "react";
 import { Layout, Sparkles, Zap } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -23,9 +24,16 @@ export function CatalogFeature({ designs }: { designs: CatalogDesign[] }) {
     label: d.name,
     design: d,
   }));
+  const [activeTab, setActiveTab] = useState(tabs[0]!.value);
+  const activeIndex = useMemo(
+    () => tabs.findIndex((tab) => tab.value === activeTab),
+    [tabs, activeTab],
+  );
+  const prevTab = tabs[(activeIndex - 1 + tabs.length) % tabs.length];
+  const nextTab = tabs[(activeIndex + 1) % tabs.length];
 
   return (
-    <Tabs.Root defaultValue={tabs[0]!.value} className="w-full">
+    <Tabs.Root value={activeTab} onValueChange={setActiveTab} className="w-full">
       <Tabs.List
         className="flex flex-col items-stretch justify-center gap-2 sm:flex-row sm:flex-wrap sm:justify-center sm:gap-3"
         aria-label="Три базовых дизайна"
@@ -79,13 +87,30 @@ export function CatalogFeature({ designs }: { designs: CatalogDesign[] }) {
                   <a href={`/?style=${tab.value}#order`}>Оформить в этом стиле</a>
                 </Button>
               </div>
-              <div className="flex min-w-0 w-full flex-col">
+              <div className="flex min-w-0 w-full flex-col gap-4">
                 <ProductImageCarousel
                   key={tab.value}
                   imageMain={tab.design.imageMain}
                   gallery={tab.design.gallery}
                   priority={tab.value === tabs[0]?.value}
                 />
+                <div className="flex items-center justify-between gap-3">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={() => setActiveTab(prevTab!.value)}
+                    className="h-10 rounded-full bg-white/80 px-4 text-xs font-semibold uppercase tracking-wide text-neutral-800 hover:bg-white"
+                  >
+                    ← Предыдущий стиль
+                  </Button>
+                  <Button
+                    type="button"
+                    onClick={() => setActiveTab(nextTab!.value)}
+                    className="h-10 rounded-full bg-fuchsia-600 px-4 text-xs font-semibold uppercase tracking-wide text-white hover:bg-fuchsia-500"
+                  >
+                    Следующий стиль →
+                  </Button>
+                </div>
               </div>
             </div>
           </Tabs.Content>

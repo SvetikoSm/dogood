@@ -33,8 +33,10 @@ export function Shelters() {
             className="flex h-full cursor-pointer flex-col"
             hover
             role="button"
+            aria-label={`Открыть информацию о приюте ${s.name}`}
             tabIndex={0}
             onClick={() => setActiveShelterId(s.id)}
+            onTouchEnd={() => setActiveShelterId(s.id)}
             onKeyDown={(e: ReactKeyboardEvent<HTMLDivElement>) => {
               if (e.key === "Enter" || e.key === " ") {
                 e.preventDefault();

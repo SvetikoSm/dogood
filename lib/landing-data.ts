@@ -18,6 +18,24 @@ export type CatalogDesign = {
 
 export const catalogDesignTemplates: CatalogDesign[] = [
   {
+    id: "life",
+    name: "«Life is better»",
+    slug: "life-is-better",
+    priceRub: 3999,
+    imageMain:
+      "https://images.unsplash.com/photo-1618354691373-d851c43c8d0b?w=900&q=80",
+    gallery: [
+      "https://images.unsplash.com/photo-1583743814966-8936f5b7be1a?w=600&q=80",
+      "https://images.unsplash.com/photo-1562157873-818bc0726f68?w=600&q=80",
+    ],
+    shortLine: "Типографика и воздух — под настроение city casual.",
+    detailBullets: [
+      "Плотный хлопок, продуманный крой, принт без «короба» на груди.",
+      "В макете вместо шаблонной графики — ваш питомец и кличка в стиле «Life is better».",
+      "3 999 ₽, унисекс one size — как и в других моделях линейки.",
+    ],
+  },
+  {
     id: "speed",
     name: "«Я — скорость»",
     slug: "ya-skorost",
@@ -51,24 +69,6 @@ export const catalogDesignTemplates: CatalogDesign[] = [
       "Тот же плотный хлопок и аккуратная посадка: вещь, которую хочется носить каждый день.",
       "Мы встроим вашу собаку и имя в готовую композицию стиля «No rainy days».",
       "3 999 ₽ — фиксированная цена футболки.",
-    ],
-  },
-  {
-    id: "life",
-    name: "«Life is better»",
-    slug: "life-is-better",
-    priceRub: 3999,
-    imageMain:
-      "https://images.unsplash.com/photo-1618354691373-d851c43c8d0b?w=900&q=80",
-    gallery: [
-      "https://images.unsplash.com/photo-1583743814966-8936f5b7be1a?w=600&q=80",
-      "https://images.unsplash.com/photo-1562157873-818bc0726f68?w=600&q=80",
-    ],
-    shortLine: "Типографика и воздух — под настроение city casual.",
-    detailBullets: [
-      "Плотный хлопок, продуманный крой, принт без «короба» на груди.",
-      "В макете вместо шаблонной графики — ваш питомец и кличка в стиле «Life is better».",
-      "3 999 ₽, унисекс one size — как и в других моделях линейки.",
     ],
   },
 ];
@@ -159,9 +159,9 @@ export const shelters: Shelter[] = [
 
 /** Три стиля принта = три дизайна витрины */
 export const printStyles = [
+  { value: "life", label: "«Life is better»" },
   { value: "speed", label: "«Я — скорость»" },
   { value: "rainy", label: "«No rainy days»" },
-  { value: "life", label: "«Life is better»" },
 ] as const;
 
 export const shirtColors = [
