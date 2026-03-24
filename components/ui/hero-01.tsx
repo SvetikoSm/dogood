@@ -57,7 +57,7 @@ export function HeroSection01() {
 
       <div className="pointer-events-none absolute bottom-0 left-1/2 z-20 -translate-x-1/2">
         <Image
-          src="/api/hero-photo"
+          src="/products/hero-person.png"
           alt="Амбассадор DOGOOD"
           width={520}
           height={900}
