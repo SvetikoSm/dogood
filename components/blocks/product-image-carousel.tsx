@@ -93,7 +93,7 @@ export function ProductImageCarousel({
                   src={src}
                   alt=""
                   fill
-                  className="object-cover"
+                  className="object-contain"
                   sizes="(max-width: 1024px) 100vw, 50vw"
                   unoptimized
                   priority={priority && idx === 0}

@@ -77,19 +77,19 @@ export function CatalogFeature({ designs }: { designs: CatalogDesign[] }) {
                   gallery={tab.design.gallery}
                   priority={tab.value === tabs[0]?.value}
                 />
-                <div className="flex items-center justify-between gap-3">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <Button
                     type="button"
                     variant="secondary"
                     onClick={() => setActiveTab(prevTab!.value)}
-                    className="h-10 rounded-full bg-white/80 px-4 text-xs font-semibold uppercase tracking-wide text-neutral-800 hover:bg-white"
+                    className="h-10 w-full rounded-full bg-white/80 px-4 text-xs font-semibold uppercase tracking-wide text-neutral-800 hover:bg-white sm:w-auto"
                   >
                     ← Предыдущий стиль
                   </Button>
                   <Button
                     type="button"
                     onClick={() => setActiveTab(nextTab!.value)}
-                    className="h-10 rounded-full bg-fuchsia-600 px-4 text-xs font-semibold uppercase tracking-wide text-white hover:bg-fuchsia-500"
+                    className="h-10 w-full rounded-full bg-fuchsia-600 px-4 text-xs font-semibold uppercase tracking-wide text-white hover:bg-fuchsia-500 sm:w-auto"
                   >
                     Следующий стиль →
                   </Button>
