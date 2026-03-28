@@ -39,3 +39,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# заявки с сайта (локальные копии; не коммитим персональные данные)
+/data/order-submissions/*
+!/data/order-submissions/.gitkeep

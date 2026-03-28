@@ -64,6 +64,7 @@ export function OrderForm() {
   const [lightboxSrc, setLightboxSrc] = useState("");
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lines, setLines] = useState<OrderLineState[]>([createLine()]);
+  const [lastOrderId, setLastOrderId] = useState<string | null>(null);
 
   useEffect(() => {
     const styleFromUrl = getStyleFromUrl();
@@ -167,11 +168,14 @@ export function OrderForm() {
         body: formData,
       });
       if (!res.ok) throw new Error("bad status");
+      const data = (await res.json()) as { orderId?: string };
+      setLastOrderId(data.orderId ?? null);
       setStatus("done");
       form.reset();
       setLines([createLine()]);
     } catch {
       setStatus("error");
+      setLastOrderId(null);
     }
   }
 
@@ -637,6 +641,14 @@ export function OrderForm() {
         {status === "done" ? (
           <p className="text-center text-sm font-medium text-neutral-700">
             Заявка ушла. Дальше — связь и макет.
+            {lastOrderId ? (
+              <>
+                {" "}
+                <span className="block mt-1 text-xs text-muted-foreground">
+                  Номер заявки: {lastOrderId}
+                </span>
+              </>
+            ) : null}
           </p>
         ) : null}
         {status === "error" ? (

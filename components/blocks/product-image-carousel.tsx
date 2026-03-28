@@ -11,7 +11,14 @@ type Props = {
   imageMain: string;
   gallery: string[];
   priority?: boolean;
+  /** id стиля из витрины: life | speed | rainy */
+  catalogDesignId?: string;
 };
+
+/** В галерее «No rainy days» файл `2.*` показываем целиком в рамке; остальные — crop как раньше. */
+function isRainyGalleryFile2(src: string): boolean {
+  return /\/rainy\/2\.(jpe?g|png|webp)/i.test(src);
+}
 
 function uniqueSlides(imageMain: string, gallery: string[]): string[] {
   const seen = new Set<string>();
@@ -29,6 +36,7 @@ export function ProductImageCarousel({
   imageMain,
   gallery,
   priority,
+  catalogDesignId,
 }: Props) {
   const slides = useMemo(
     () => uniqueSlides(imageMain, gallery),
@@ -93,7 +101,11 @@ export function ProductImageCarousel({
                   src={src}
                   alt=""
                   fill
-                  className="object-contain"
+                  className={
+                    catalogDesignId === "rainy" && isRainyGalleryFile2(src)
+                      ? "object-contain"
+                      : "object-cover"
+                  }
                   sizes="(max-width: 1024px) 100vw, 50vw"
                   unoptimized
                   priority={priority && idx === 0}

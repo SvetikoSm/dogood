@@ -22,19 +22,11 @@ export function Footer() {
               <li>
                 <a
                   className="transition-colors hover:text-dogood-pink"
-                  href="mailto:hello@dogood.demo"
-                >
-                  hello@dogood.demo
-                </a>
-              </li>
-              <li>
-                <a
-                  className="transition-colors hover:text-dogood-pink"
-                  href="https://t.me/dogood_demo"
+                  href="https://t.me/SmSvetiko"
                   target="_blank"
                   rel="noopener noreferrer"
                 >
-                  Telegram · @dogood_demo
+                  Telegram · @SmSvetiko
                 </a>
               </li>
             </ul>
