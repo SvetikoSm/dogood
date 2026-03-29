@@ -19,6 +19,54 @@ const fieldClass =
 const labelClass =
   "text-xs font-semibold uppercase tracking-wider text-muted-foreground";
 
+const MAX_PHOTOS_PER_LINE = 8;
+
+function PhotoThumb({ file, onRemove }: { file: File; onRemove: () => void }) {
+  const [url, setUrl] = useState<string | null>(null);
+  const [previewBroken, setPreviewBroken] = useState(false);
+
+  // Нельзя держать blob URL в useMemo: в dev Strict Mode эффект отзывает URL, а мемо отдаёт старый (битый) адрес.
+  useEffect(() => {
+    const objectUrl = URL.createObjectURL(file);
+    setUrl(objectUrl);
+    setPreviewBroken(false);
+    return () => {
+      URL.revokeObjectURL(objectUrl);
+    };
+  }, [file]);
+
+  return (
+    <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-xl border border-fuchsia-200 bg-fuchsia-50/40">
+      {previewBroken ? (
+        <div className="flex h-full w-full items-center justify-center p-1 text-center text-[10px] leading-tight text-muted-foreground">
+          {file.name.slice(0, 12)}…
+        </div>
+      ) : url ? (
+        // eslint-disable-next-line @next/next/no-img-element -- blob: превью; next/image с blob часто ломается
+        <img
+          src={url}
+          alt=""
+          className="h-full w-full object-cover"
+          onError={() => setPreviewBroken(true)}
+        />
+      ) : (
+        <div
+          className="h-full w-full animate-pulse bg-fuchsia-100/60"
+          aria-hidden
+        />
+      )}
+      <button
+        type="button"
+        onClick={onRemove}
+        className="absolute right-0.5 top-0.5 flex h-6 w-6 items-center justify-center rounded-full border border-fuchsia-200 bg-white/95 text-sm font-bold text-neutral-800 shadow-sm hover:bg-fuchsia-50"
+        aria-label="Удалить это фото"
+      >
+        ×
+      </button>
+    </div>
+  );
+}
+
 export type OrderLineState = {
   id: string;
   sameAsPrevious: boolean;
@@ -64,7 +112,14 @@ export function OrderForm() {
   const [lightboxSrc, setLightboxSrc] = useState("");
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lines, setLines] = useState<OrderLineState[]>([createLine()]);
+  /** Фото по строкам заказа; для «как на предыдущей» при отправке копируются с предыдущей строки */
+  const [linePhotos, setLinePhotos] = useState<File[][]>([[]]);
+  const [photoError, setPhotoError] = useState<string | null>(null);
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const [lastOrderId, setLastOrderId] = useState<string | null>(null);
+  const [lastGoogleWebhook, setLastGoogleWebhook] = useState<
+    "skipped" | "ok" | "error" | null
+  >(null);
 
   useEffect(() => {
     const styleFromUrl = getStyleFromUrl();
@@ -75,6 +130,19 @@ export function OrderForm() {
       ),
     );
   }, []);
+
+  useEffect(() => {
+    setLinePhotos((prev) => {
+      if (prev.length === lines.length) return prev;
+      if (prev.length < lines.length) {
+        return [
+          ...prev,
+          ...Array.from({ length: lines.length - prev.length }, () => [] as File[]),
+        ];
+      }
+      return prev.slice(0, lines.length);
+    });
+  }, [lines.length]);
 
   const fallbackPreviewByStyle = catalogDesignTemplates.reduce<
     Record<string, string>
@@ -110,7 +178,10 @@ export function OrderForm() {
     [],
   );
 
-  const addLine = () => setLines((prev) => [...prev, createLine()]);
+  const addLine = () => {
+    setLines((prev) => [...prev, createLine()]);
+    setLinePhotos((prev) => [...prev, []]);
+  };
 
   async function handleDeliveryEstimate() {
     const addressInput = document.getElementById(
@@ -158,24 +229,72 @@ export function OrderForm() {
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    setPhotoError(null);
+    setSubmitError(null);
+
+    for (let i = 0; i < lines.length; i++) {
+      const locked = i > 0 && lines[i]!.sameAsPrevious;
+      if (locked) continue;
+      const photos = linePhotos[i] ?? [];
+      if (photos.length < 1) {
+        setPhotoError(`Добавьте хотя бы одно фото собаки для футболки ${i + 1}.`);
+        return;
+      }
+    }
+
     setStatus("sending");
     const form = e.currentTarget;
     const formData = new FormData(form);
+
+    for (let i = 0; i < lines.length; i++) {
+      formData.delete(`items[${i}][photos]`);
+    }
+    for (let i = 0; i < lines.length; i++) {
+      const locked = i > 0 && lines[i]!.sameAsPrevious;
+      const src = locked ? (linePhotos[i - 1] ?? []) : (linePhotos[i] ?? []);
+      for (const file of src) {
+        formData.append(`items[${i}][photos]`, file);
+      }
+    }
 
     try {
       const res = await fetch("/api/order", {
         method: "POST",
         body: formData,
       });
-      if (!res.ok) throw new Error("bad status");
-      const data = (await res.json()) as { orderId?: string };
+      const raw = await res.text();
+      let data: {
+        orderId?: string;
+        googleWebhook?: "skipped" | "ok" | "error";
+        detail?: string;
+      } = {};
+      try {
+        data = JSON.parse(raw) as typeof data;
+      } catch {
+        /* не JSON */
+      }
+      if (!res.ok) {
+        const hint =
+          res.status === 413
+            ? "Файлы слишком большие для сервера (попробуйте фото меньшего размера)."
+            : (data.detail ?? raw.slice(0, 200)) || `Ошибка ${res.status}`;
+        setSubmitError(hint);
+        setStatus("error");
+        setLastOrderId(null);
+        setLastGoogleWebhook(null);
+        return;
+      }
       setLastOrderId(data.orderId ?? null);
+      setLastGoogleWebhook(data.googleWebhook ?? "skipped");
       setStatus("done");
       form.reset();
       setLines([createLine()]);
+      setLinePhotos([[]]);
     } catch {
       setStatus("error");
+      setSubmitError("Сеть или сервер недоступны. Попробуйте позже.");
       setLastOrderId(null);
+      setLastGoogleWebhook(null);
     }
   }
 
@@ -188,7 +307,7 @@ export function OrderForm() {
       <SectionHeading
         eyebrow="заявка"
         title="Соберём заказ вместе"
-        description="Заполните данные — мы свяжемся и пришлём макет. Сейчас заявка уходит в тестовый API."
+        description="Заполните форму и прикрепите фото собаки — в течение 1–2 дней свяжемся с вами, пришлём макет футболки и данные по оплате."
       />
 
       <form
@@ -253,17 +372,61 @@ export function OrderForm() {
 
               <div>
                 <label className={labelClass}>
-                  Фото собаки (2–3 файла)
+                  Фото собаки (от 1 файла, лучше несколько — можно удалить лишнее)
                 </label>
                 {!locked ? (
-                  <input
-                    name={`items[${index}][photos]`}
-                    type="file"
-                    accept="image/*"
-                    multiple
-                    required
-                    className={`${fieldClass} file:mr-3 file:rounded-full file:border-0 file:bg-dogood-pink/15 file:px-3 file:py-1 file:text-xs file:font-semibold file:uppercase file:text-fuchsia-800`}
-                  />
+                  <div className="space-y-3">
+                    <div className="flex flex-wrap gap-2">
+                      {(linePhotos[index] ?? []).map((file, pi) => (
+                        <PhotoThumb
+                          key={`${file.name}-${file.size}-${file.lastModified}-${pi}`}
+                          file={file}
+                          onRemove={() =>
+                            setLinePhotos((prev) => {
+                              const next = prev.map((a) => [...a]);
+                              next[index] = (next[index] ?? []).filter((_, j) => j !== pi);
+                              return next;
+                            })
+                          }
+                        />
+                      ))}
+                    </div>
+                    <input
+                      id={`photo-pick-${line.id}`}
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      tabIndex={-1}
+                      className="sr-only"
+                      aria-hidden
+                      onChange={(ev) => {
+                        const picked = ev.target.files;
+                        if (!picked?.length) return;
+                        setLinePhotos((prev) => {
+                          const next = prev.map((a) => [...a]);
+                          const cur = next[index] ?? [];
+                          const merged = [...cur, ...Array.from(picked)].slice(
+                            0,
+                            MAX_PHOTOS_PER_LINE,
+                          );
+                          next[index] = merged;
+                          return next;
+                        });
+                        ev.target.value = "";
+                      }}
+                    />
+                    <button
+                      type="button"
+                      aria-label={`Выбрать фото для футболки ${index + 1}`}
+                      className={`${fieldClass} inline-flex w-full cursor-pointer items-center justify-center text-center text-sm font-medium text-fuchsia-800`}
+                      onClick={() =>
+                        document.getElementById(`photo-pick-${line.id}`)?.click()
+                      }
+                    >
+                      + добавить фото (
+                      {(linePhotos[index] ?? []).length}/{MAX_PHOTOS_PER_LINE}, минимум 1)
+                    </button>
+                  </div>
                 ) : (
                   <>
                     <input
@@ -277,7 +440,8 @@ export function OrderForm() {
                   </>
                 )}
                 <p className="mt-1 text-xs text-muted-foreground">
-                  Нужны 2–3 кадра: видна мордочка и есть фото в полный рост.
+                  Заказ можно оформить с одним фото. Если есть ещё кадры — лучше: желательно мордочка и
+                  снимок в полный рост.
                 </p>
               </div>
 
@@ -481,7 +645,7 @@ export function OrderForm() {
             ))}
           </select>
           <p className="mt-2 text-xs text-muted-foreground">
-            20% прибыли от заказа направим в выбранный приют из партнёров DOGOOD.
+            20% прибыли от заказа направим в выбранный вами приют из списка ниже.
           </p>
         </div>
 
@@ -630,6 +794,13 @@ export function OrderForm() {
           </div>
         </div>
 
+        {photoError ? (
+          <p className="text-center text-sm font-medium text-red-500">{photoError}</p>
+        ) : null}
+        {submitError ? (
+          <p className="text-center text-sm font-medium text-red-500">{submitError}</p>
+        ) : null}
+
         <DogoodButton
           variant="primary"
           type="submit"
@@ -639,19 +810,27 @@ export function OrderForm() {
           {status === "sending" ? "отправляем…" : "отправить заявку"}
         </DogoodButton>
         {status === "done" ? (
-          <p className="text-center text-sm font-medium text-neutral-700">
-            Заявка ушла. Дальше — связь и макет.
+          <div className="space-y-2 text-center text-sm font-medium text-neutral-700">
+            <p>Спасибо! Заявка принята.</p>
+            <p className="text-muted-foreground">
+              В течение <strong className="text-foreground">1–2 дней</strong> свяжемся с вами, пришлём
+              макет и данные по оплате.
+            </p>
             {lastOrderId ? (
-              <>
-                {" "}
-                <span className="block mt-1 text-xs text-muted-foreground">
-                  Номер заявки: {lastOrderId}
-                </span>
-              </>
+              <p className="text-xs text-muted-foreground">
+                Сохраните номер заявки:{" "}
+                <span className="font-mono text-foreground">{lastOrderId}</span>
+              </p>
             ) : null}
-          </p>
+            {lastGoogleWebhook === "error" ? (
+              <p className="text-xs text-amber-700">
+                Если за 2 дня ответа не будет — напишите нам через контакты внизу страницы, укажите
+                номер заявки.
+              </p>
+            ) : null}
+          </div>
         ) : null}
-        {status === "error" ? (
+        {status === "error" && !submitError ? (
           <p className="text-center text-sm font-medium text-red-400">
             Не удалось отправить. Попробуйте ещё раз чуть позже.
           </p>

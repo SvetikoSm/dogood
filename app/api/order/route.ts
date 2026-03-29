@@ -1,17 +1,29 @@
 import { NextResponse } from "next/server";
 
+import { forwardOrderToGoogleWebhook } from "@/lib/forward-order-to-google";
 import { saveOrderSubmission } from "@/lib/save-order-submission";
+
+export const maxDuration = 120;
 
 /**
  * Принимает multipart/form-data из формы заказа.
- * Сохраняет metadata.json и файлы в `data/order-submissions/<orderId>/`.
+ * Сохраняет `order.json` и файлы в `data/order-submissions/<orderId>/uploads/`.
  *
- * Локально: откройте папку `data/order-submissions` после отправки формы.
- * Netlify Functions: диск эфемерный — для продакшена лучше S3/R2, Supabase Storage
- * или вебхук в CRM; при неудачной записи на диск ответ всё равно 200, но в JSON будет warning.
+ * Если заданы `GOOGLE_ORDER_WEBHOOK_URL` и `GOOGLE_ORDER_WEBHOOK_SECRET`, после сохранения
+ * отправляет тот же заказ в Google Apps Script (строка в Таблице + файлы на Диск).
+ * Обычную Google Form с сайта так не подключить — файлы туда не уходят; нужен скрипт из `scripts/`.
  */
 export async function POST(request: Request) {
-  const formData = await request.formData();
+  let formData: FormData;
+  try {
+    formData = await request.formData();
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    return NextResponse.json(
+      { ok: false, detail: message },
+      { status: 413 },
+    );
+  }
 
   const summary: Record<string, string> = {};
   formData.forEach((value, key) => {
@@ -22,15 +34,48 @@ export async function POST(request: Request) {
     }
   });
 
-  const saved = await saveOrderSubmission(formData);
+  const webhookUrl = process.env.GOOGLE_ORDER_WEBHOOK_URL?.trim();
+  const webhookSecret = process.env.GOOGLE_ORDER_WEBHOOK_SECRET?.trim() ?? "";
+  const includeWebhookPayload = Boolean(webhookUrl && webhookSecret);
 
-  console.log("[api/order]", saved.orderId, saved.savedToDisk ? "saved" : "not saved", summary);
+  const saved = await saveOrderSubmission(formData, {
+    includeWebhookPayload,
+  });
+
+  let googleWebhookStatus: "skipped" | "ok" | "error" = "skipped";
+  let googleWebhookError: string | undefined;
+
+  /* Вебхук не привязываем к savedToDisk: на Netlify запись в data/ часто недоступна,
+   * но заказ и файлы уже собраны в памяти (googleWebhookPayload). */
+  if (includeWebhookPayload && saved.googleWebhookPayload && webhookUrl) {
+    const fwd = await forwardOrderToGoogleWebhook({
+      webhookUrl,
+      secret: webhookSecret,
+      order: saved.googleWebhookPayload.order,
+      files: saved.googleWebhookPayload.files,
+    });
+    googleWebhookStatus = fwd.ok ? "ok" : "error";
+    if (!fwd.ok) googleWebhookError = fwd.error;
+    if (!fwd.ok) {
+      console.error("[api/order] google webhook failed:", fwd.error);
+    }
+  }
+
+  console.log(
+    "[api/order]",
+    saved.orderId,
+    saved.savedToDisk ? "saved" : "not saved",
+    googleWebhookStatus,
+    summary,
+  );
 
   return NextResponse.json({
     ok: true,
     orderId: saved.orderId,
     savedToDisk: saved.savedToDisk,
     submissionDir: saved.submissionDir,
+    googleWebhook: googleWebhookStatus,
+    ...(googleWebhookError ? { googleWebhookError } : {}),
     ...(saved.error ? { warning: "disk_save_failed", detail: saved.error } : {}),
     received: Object.keys(summary),
   });
