@@ -1,18 +1,21 @@
+import { convertHeicToJpegIfNeeded } from "@/lib/heic-to-jpeg-client";
+
 /**
  * Сжатие фото в браузере перед отправкой на API (лимит тела на Netlify ~6 MB).
- * Вызывать только из клиентских компонентов.
+ * Качество умеренное — для макета и печати достаточно, вес меньше.
  */
-const MAX_EDGE_PX = 1600;
-const JPEG_QUALITY = 0.82;
-/** Не трогаем уже небольшие файлы */
-const SKIP_BELOW_BYTES = 350_000;
+const MAX_EDGE_PX = 1200;
+const JPEG_QUALITY = 0.68;
+/** Ниже этого размера не перекодируем (уже лёгкие файлы) */
+const SKIP_BELOW_BYTES = 220_000;
 
 export async function compressImageForUpload(file: File): Promise<File> {
-  if (!file.type.startsWith("image/")) return file;
-  if (file.size <= SKIP_BELOW_BYTES) return file;
+  const decoded = await convertHeicToJpegIfNeeded(file);
+  if (!decoded.type.startsWith("image/")) return decoded;
+  if (decoded.size <= SKIP_BELOW_BYTES) return decoded;
 
   try {
-    const bitmap = await createImageBitmap(file);
+    const bitmap = await createImageBitmap(decoded);
     try {
       const { width, height } = bitmap;
       const scale = Math.min(1, MAX_EDGE_PX / Math.max(width, height));
@@ -23,16 +26,16 @@ export async function compressImageForUpload(file: File): Promise<File> {
       canvas.width = w;
       canvas.height = h;
       const ctx = canvas.getContext("2d");
-      if (!ctx) return file;
+      if (!ctx) return decoded;
       ctx.drawImage(bitmap, 0, 0, w, h);
 
       const blob = await new Promise<Blob | null>((resolve) =>
         canvas.toBlob((b) => resolve(b), "image/jpeg", JPEG_QUALITY),
       );
-      if (!blob) return file;
-      if (blob.size >= file.size) return file;
+      if (!blob) return decoded;
+      if (blob.size >= decoded.size) return decoded;
 
-      const baseName = (file.name || "photo").replace(/\.[^.]+$/, "");
+      const baseName = (decoded.name || "photo").replace(/\.[^.]+$/, "");
       return new File([blob], `${baseName}.jpg`, {
         type: "image/jpeg",
         lastModified: Date.now(),
@@ -41,7 +44,7 @@ export async function compressImageForUpload(file: File): Promise<File> {
       bitmap.close();
     }
   } catch {
-    return file;
+    return decoded;
   }
 }
 

@@ -16,6 +16,7 @@ import {
   compressImageForUpload,
   MAX_ORDER_UPLOAD_BYTES,
 } from "@/lib/compress-order-image";
+import { convertHeicToJpegIfNeeded } from "@/lib/heic-to-jpeg-client";
 
 const fieldClass =
   "mt-1 w-full rounded-2xl border border-fuchsia-200 bg-white px-4 py-3 text-sm text-foreground outline-none transition-shadow placeholder:text-neutral-500 focus:border-dogood-pink focus:ring-2 focus:ring-dogood-pink/25";
@@ -28,67 +29,71 @@ const MAX_PHOTOS_PER_LINE = 8;
 function PhotoThumb({ file, onRemove }: { file: File; onRemove: () => void }) {
   const [url, setUrl] = useState<string | null>(null);
   const [previewBroken, setPreviewBroken] = useState(false);
-  const decodeAttempted = useRef(false);
-  /** Активный blob: для корректного revoke при смене файла и после JPEG-фолбэка */
   const activeBlobRef = useRef<string | null>(null);
 
-  // Нельзя держать blob URL в useMemo: в dev Strict Mode эффект отзывает URL, а мемо отдаёт старый (битый) адрес.
-  useEffect(() => {
-    decodeAttempted.current = false;
-    const objectUrl = URL.createObjectURL(file);
-    activeBlobRef.current = objectUrl;
-    setUrl(objectUrl);
-    setPreviewBroken(false);
-    return () => {
-      if (activeBlobRef.current) {
-        URL.revokeObjectURL(activeBlobRef.current);
-        activeBlobRef.current = null;
-      }
-    };
-  }, [file]);
-
-  /** HEIC/WebP и часть мобильных браузеров не рисуют исходный blob в <img> — делаем JPEG-превью через canvas. */
-  async function tryDecodePreview() {
-    if (decodeAttempted.current) return;
-    decodeAttempted.current = true;
-    try {
-      const bitmap = await createImageBitmap(file);
-      try {
-        const maxEdge = 320;
-        const { width, height } = bitmap;
-        const scale = Math.min(1, maxEdge / Math.max(width, height));
-        const w = Math.max(1, Math.round(width * scale));
-        const h = Math.max(1, Math.round(height * scale));
-        const canvas = document.createElement("canvas");
-        canvas.width = w;
-        canvas.height = h;
-        const ctx = canvas.getContext("2d");
-        if (!ctx) {
-          setPreviewBroken(true);
-          return;
-        }
-        ctx.drawImage(bitmap, 0, 0, w, h);
-        const blob = await new Promise<Blob | null>((resolve) =>
-          canvas.toBlob((b) => resolve(b), "image/jpeg", 0.82),
-        );
-        if (!blob) {
-          setPreviewBroken(true);
-          return;
-        }
-        const jpegUrl = URL.createObjectURL(blob);
-        setUrl((prev) => {
-          if (prev) URL.revokeObjectURL(prev);
-          activeBlobRef.current = jpegUrl;
-          return jpegUrl;
-        });
-        setPreviewBroken(false);
-      } finally {
-        bitmap.close();
-      }
-    } catch {
-      setPreviewBroken(true);
+  function revokeActive() {
+    if (activeBlobRef.current) {
+      URL.revokeObjectURL(activeBlobRef.current);
+      activeBlobRef.current = null;
     }
   }
+
+  /**
+   * Сразу декодируем файл в JPEG-превью через canvas — исходный blob (особенно HEIC)
+   * во многих мобильных браузерах в <img> не показывается или не даёт onError.
+   */
+  useEffect(() => {
+    let cancelled = false;
+
+    async function buildPreview() {
+      setPreviewBroken(false);
+      revokeActive();
+      setUrl(null);
+
+      try {
+        const prepared = await convertHeicToJpegIfNeeded(file);
+        const bitmap = await createImageBitmap(prepared);
+        try {
+          const maxEdge = 280;
+          const { width, height } = bitmap;
+          const scale = Math.min(1, maxEdge / Math.max(width, height, 1));
+          const w = Math.max(1, Math.round(width * scale));
+          const h = Math.max(1, Math.round(height * scale));
+          const canvas = document.createElement("canvas");
+          canvas.width = w;
+          canvas.height = h;
+          const ctx = canvas.getContext("2d");
+          if (!ctx) throw new Error("no canvas context");
+          ctx.drawImage(bitmap, 0, 0, w, h);
+          const blob = await new Promise<Blob | null>((resolve) =>
+            canvas.toBlob((b) => resolve(b), "image/jpeg", 0.65),
+          );
+          if (cancelled || !blob) throw new Error("no jpeg blob");
+          const u = URL.createObjectURL(blob);
+          activeBlobRef.current = u;
+          setUrl(u);
+        } finally {
+          bitmap.close();
+        }
+      } catch {
+        if (cancelled) return;
+        try {
+          const direct = URL.createObjectURL(file);
+          activeBlobRef.current = direct;
+          setUrl(direct);
+        } catch {
+          setPreviewBroken(true);
+        }
+      }
+    }
+
+    void buildPreview();
+    return () => {
+      cancelled = true;
+      revokeActive();
+      setUrl(null);
+    };
+  }, [file]);
 
   return (
     <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-xl border border-fuchsia-200 bg-fuchsia-50/40">
@@ -102,9 +107,7 @@ function PhotoThumb({ file, onRemove }: { file: File; onRemove: () => void }) {
           src={url}
           alt=""
           className="h-full w-full object-cover"
-          onError={() => {
-            void tryDecodePreview();
-          }}
+          onError={() => setPreviewBroken(true)}
         />
       ) : (
         <div
@@ -384,7 +387,7 @@ export function OrderForm() {
       <SectionHeading
         eyebrow="заявка"
         title="Соберём заказ вместе"
-        description="Заполните форму (фото можно приложить сразу или прислать позже в Telegram) — в течение 1–2 дней свяжемся с вами, пришлём макет футболки и данные по оплате."
+        description="Заполните форму — в течение 1–2 дней свяжемся с вами, пришлём макет футболки и данные по оплате."
       />
 
       <form
@@ -509,17 +512,8 @@ export function OrderForm() {
                       + добавить фото
                     </label>
                     <p className="text-xs leading-relaxed text-muted-foreground">
-                      Загрузка превью может занять пару секунд. Если не получается подгрузить фото —
-                      напишите нам в{" "}
-                      <a
-                        href="https://t.me/SmSvetiko"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="font-medium text-fuchsia-700 underline decoration-fuchsia-300 underline-offset-2 hover:text-fuchsia-900"
-                      >
-                        Telegram
-                      </a>
-                      .
+                      На некоторых устройствах превью фото в форме не отображается — это нормально, снимки
+                      всё равно прикрепляются к заявке. При необходимости мы с вами свяжемся.
                     </p>
                   </div>
                 ) : (
