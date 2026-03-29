@@ -1,8 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { randomUUID } from "node:crypto";
-
 import { deliveryMethods, printStyles, shelters } from "@/lib/landing-data";
+import { generatePublicOrderId } from "@/lib/order-id";
 import type { GoogleWebhookFilePart } from "@/lib/forward-order-to-google";
 import type { TrackedOrder, TrackedOrderLine } from "@/lib/order-tracking-types";
 
@@ -61,7 +60,7 @@ export async function saveOrderSubmission(
   formData: FormData,
   options?: { includeWebhookPayload?: boolean },
 ): Promise<SavedOrderResult> {
-  const orderId = randomUUID();
+  const orderId = generatePublicOrderId();
   const now = new Date().toISOString();
   const submissionDir = path.join(SUBMISSIONS_ROOT, orderId);
   const uploadsDir = path.join(submissionDir, "uploads");

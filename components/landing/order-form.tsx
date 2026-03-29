@@ -16,7 +16,10 @@ import {
   compressImageForUpload,
   MAX_ORDER_UPLOAD_BYTES,
 } from "@/lib/compress-order-image";
-import { convertHeicToJpegIfNeeded } from "@/lib/heic-to-jpeg-client";
+import {
+  convertHeicToJpegIfNeeded,
+  tryHeic2anyToJpegFile,
+} from "@/lib/heic-to-jpeg-client";
 
 const fieldClass =
   "mt-1 w-full rounded-2xl border border-fuchsia-200 bg-white px-4 py-3 text-sm text-foreground outline-none transition-shadow placeholder:text-neutral-500 focus:border-dogood-pink focus:ring-2 focus:ring-dogood-pink/25";
@@ -39,51 +42,112 @@ function PhotoThumb({ file, onRemove }: { file: File; onRemove: () => void }) {
   }
 
   /**
-   * Сразу декодируем файл в JPEG-превью через canvas — исходный blob (особенно HEIC)
-   * во многих мобильных браузерах в <img> не показывается или не даёт onError.
+   * Превью: HEIF по сигнатуре + heic2any, затем createImageBitmap (с учётом EXIF),
+   * при сбое — повторный heic2any и data URL для обычных jpeg/png.
    */
   useEffect(() => {
     let cancelled = false;
+
+    async function createBitmapLoose(blob: Blob): Promise<ImageBitmap> {
+      try {
+        return await createImageBitmap(blob, {
+          imageOrientation: "from-image",
+        } as ImageBitmapOptions);
+      } catch {
+        return createImageBitmap(blob);
+      }
+    }
+
+    async function bitmapToObjectUrl(bitmap: ImageBitmap): Promise<string | null> {
+      const maxEdge = 280;
+      const { width, height } = bitmap;
+      const scale = Math.min(1, maxEdge / Math.max(width, height, 1));
+      const w = Math.max(1, Math.round(width * scale));
+      const h = Math.max(1, Math.round(height * scale));
+      const canvas = document.createElement("canvas");
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return null;
+      ctx.drawImage(bitmap, 0, 0, w, h);
+      const blob = await new Promise<Blob | null>((resolve) =>
+        canvas.toBlob((b) => resolve(b), "image/jpeg", 0.65),
+      );
+      if (!blob) return null;
+      return URL.createObjectURL(blob);
+    }
+
+    async function decodeFileToPreviewUrl(f: File): Promise<string | null> {
+      let bitmap: ImageBitmap | null = null;
+      try {
+        bitmap = await createBitmapLoose(f);
+        try {
+          return await bitmapToObjectUrl(bitmap);
+        } finally {
+          bitmap.close();
+          bitmap = null;
+        }
+      } catch {
+        if (bitmap) {
+          try {
+            bitmap.close();
+          } catch {
+            /* ignore */
+          }
+        }
+        return null;
+      }
+    }
+
+    async function tryDataUrl(f: File): Promise<string | null> {
+      if (!/^image\/(jpeg|png|webp)/i.test(f.type)) return null;
+      return new Promise((resolve) => {
+        const fr = new FileReader();
+        fr.onload = () =>
+          resolve(typeof fr.result === "string" ? fr.result : null);
+        fr.onerror = () => resolve(null);
+        fr.readAsDataURL(f);
+      });
+    }
 
     async function buildPreview() {
       setPreviewBroken(false);
       revokeActive();
       setUrl(null);
 
-      try {
-        const prepared = await convertHeicToJpegIfNeeded(file);
-        const bitmap = await createImageBitmap(prepared);
-        try {
-          const maxEdge = 280;
-          const { width, height } = bitmap;
-          const scale = Math.min(1, maxEdge / Math.max(width, height, 1));
-          const w = Math.max(1, Math.round(width * scale));
-          const h = Math.max(1, Math.round(height * scale));
-          const canvas = document.createElement("canvas");
-          canvas.width = w;
-          canvas.height = h;
-          const ctx = canvas.getContext("2d");
-          if (!ctx) throw new Error("no canvas context");
-          ctx.drawImage(bitmap, 0, 0, w, h);
-          const blob = await new Promise<Blob | null>((resolve) =>
-            canvas.toBlob((b) => resolve(b), "image/jpeg", 0.65),
-          );
-          if (cancelled || !blob) throw new Error("no jpeg blob");
-          const u = URL.createObjectURL(blob);
+      const candidates: File[] = [];
+      const prepared = await convertHeicToJpegIfNeeded(file);
+      candidates.push(prepared);
+      if (prepared === file) {
+        const forced = await tryHeic2anyToJpegFile(file);
+        if (forced && forced !== file) candidates.push(forced);
+      }
+
+      for (const cand of candidates) {
+        if (cancelled) return;
+        const u = await decodeFileToPreviewUrl(cand);
+        if (cancelled) return;
+        if (u) {
           activeBlobRef.current = u;
           setUrl(u);
-        } finally {
-          bitmap.close();
+          return;
         }
+      }
+
+      if (cancelled) return;
+      const dataUrl = await tryDataUrl(file);
+      if (cancelled) return;
+      if (dataUrl) {
+        setUrl(dataUrl);
+        return;
+      }
+
+      try {
+        const direct = URL.createObjectURL(file);
+        activeBlobRef.current = direct;
+        setUrl(direct);
       } catch {
-        if (cancelled) return;
-        try {
-          const direct = URL.createObjectURL(file);
-          activeBlobRef.current = direct;
-          setUrl(direct);
-        } catch {
-          setPreviewBroken(true);
-        }
+        setPreviewBroken(true);
       }
     }
 
@@ -431,9 +495,6 @@ export function OrderForm() {
                     </button>
                   ) : null}
                 </div>
-                <p className="text-xs text-muted-foreground">
-                  Унисекс, one size — единый комфортный оверсайз-крой.
-                </p>
               </div>
 
               {index > 0 ? (
@@ -525,6 +586,9 @@ export function OrderForm() {
                     />
                     <p className="rounded-2xl border border-fuchsia-200 bg-fuchsia-50/60 px-4 py-3 text-sm text-muted-foreground">
                       Используем те же фото, что и в позиции {index}.
+                    </p>
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      Унисекс, one size — единый комфортный оверсайз-крой.
                     </p>
                   </>
                 )}
@@ -663,6 +727,9 @@ export function OrderForm() {
                       ассортимент. Если вам нужна черная футболка, напишите нам в
                       контакты — подумаем, что сможем сделать индивидуально.
                     </p>
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      Унисекс, one size — единый комфортный оверсайз-крой.
+                    </p>
                   </div>
                 </>
               ) : (
@@ -725,13 +792,10 @@ export function OrderForm() {
           >
             {shelters.map((s) => (
               <option key={s.id} value={s.id}>
-                {s.name} — {s.city}
+                {s.name}
               </option>
             ))}
           </select>
-          <p className="mt-2 text-xs text-muted-foreground">
-            20% прибыли от заказа направим в выбранный вами приют из списка ниже.
-          </p>
         </div>
 
         <div className="space-y-6 border-t border-fuchsia-200 pt-6">
