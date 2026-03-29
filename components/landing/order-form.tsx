@@ -396,9 +396,7 @@ export function OrderForm() {
                       type="file"
                       accept="image/*"
                       multiple
-                      tabIndex={-1}
                       className="sr-only"
-                      aria-hidden
                       onChange={(ev) => {
                         const picked = ev.target.files;
                         if (!picked?.length) return;
@@ -415,17 +413,14 @@ export function OrderForm() {
                         ev.target.value = "";
                       }}
                     />
-                    <button
-                      type="button"
-                      aria-label={`Выбрать фото для футболки ${index + 1}`}
+                    {/* label + htmlFor: на iOS Safari программный input.click() часто блокируется */}
+                    <label
+                      htmlFor={`photo-pick-${line.id}`}
                       className={`${fieldClass} inline-flex w-full cursor-pointer items-center justify-center text-center text-sm font-medium text-fuchsia-800`}
-                      onClick={() =>
-                        document.getElementById(`photo-pick-${line.id}`)?.click()
-                      }
                     >
                       + добавить фото (
                       {(linePhotos[index] ?? []).length}/{MAX_PHOTOS_PER_LINE}, минимум 1)
-                    </button>
+                    </label>
                   </div>
                 ) : (
                   <>
