@@ -117,9 +117,6 @@ export function OrderForm() {
   const [photoError, setPhotoError] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [lastOrderId, setLastOrderId] = useState<string | null>(null);
-  const [lastGoogleWebhook, setLastGoogleWebhook] = useState<
-    "skipped" | "ok" | "error" | null
-  >(null);
 
   useEffect(() => {
     const styleFromUrl = getStyleFromUrl();
@@ -263,11 +260,7 @@ export function OrderForm() {
         body: formData,
       });
       const raw = await res.text();
-      let data: {
-        orderId?: string;
-        googleWebhook?: "skipped" | "ok" | "error";
-        detail?: string;
-      } = {};
+      let data: { orderId?: string; detail?: string } = {};
       try {
         data = JSON.parse(raw) as typeof data;
       } catch {
@@ -281,11 +274,9 @@ export function OrderForm() {
         setSubmitError(hint);
         setStatus("error");
         setLastOrderId(null);
-        setLastGoogleWebhook(null);
         return;
       }
       setLastOrderId(data.orderId ?? null);
-      setLastGoogleWebhook(data.googleWebhook ?? "skipped");
       setStatus("done");
       form.reset();
       setLines([createLine()]);
@@ -294,7 +285,6 @@ export function OrderForm() {
       setStatus("error");
       setSubmitError("Сеть или сервер недоступны. Попробуйте позже.");
       setLastOrderId(null);
-      setLastGoogleWebhook(null);
     }
   }
 
@@ -806,21 +796,15 @@ export function OrderForm() {
         </DogoodButton>
         {status === "done" ? (
           <div className="space-y-2 text-center text-sm font-medium text-neutral-700">
-            <p>Спасибо! Заявка принята.</p>
+            <p>Спасибо за заказ!</p>
             <p className="text-muted-foreground">
-              В течение <strong className="text-foreground">1–2 дней</strong> свяжемся с вами, пришлём
-              макет и данные по оплате.
+              Мы уже взялись за подготовку макета — макет и данные по оплате пришлём в течение{" "}
+              <strong className="text-foreground">1–2 дней</strong>.
             </p>
             {lastOrderId ? (
               <p className="text-xs text-muted-foreground">
-                Сохраните номер заявки:{" "}
+                Номер заявки:{" "}
                 <span className="font-mono text-foreground">{lastOrderId}</span>
-              </p>
-            ) : null}
-            {lastGoogleWebhook === "error" ? (
-              <p className="text-xs text-amber-700">
-                Если за 2 дня ответа не будет — напишите нам через контакты внизу страницы, укажите
-                номер заявки.
               </p>
             ) : null}
           </div>
