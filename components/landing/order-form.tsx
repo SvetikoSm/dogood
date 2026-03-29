@@ -12,6 +12,7 @@ import {
   printStyles,
   shelters,
 } from "@/lib/landing-data";
+import { Image as ImageIcon } from "lucide-react";
 import {
   compressImageForUpload,
   MAX_ORDER_UPLOAD_BYTES,
@@ -29,9 +30,21 @@ const labelClass =
 
 const MAX_PHOTOS_PER_LINE = 8;
 
+type PhotoSlot = { id: string; file: File };
+
+function newPhotoId(): string {
+  return typeof crypto !== "undefined"
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+}
+
+/**
+ * Сразу показываем иконку + имя файла (всегда видно, что фото прикреплено),
+ * поверх — быстрый blob:URL; затем при необходимости заменяем на JPEG после декодирования.
+ */
 function PhotoThumb({ file, onRemove }: { file: File; onRemove: () => void }) {
   const [url, setUrl] = useState<string | null>(null);
-  const [previewBroken, setPreviewBroken] = useState(false);
+  const [imgHidden, setImgHidden] = useState(false);
   const activeBlobRef = useRef<string | null>(null);
 
   function revokeActive() {
@@ -41,117 +54,75 @@ function PhotoThumb({ file, onRemove }: { file: File; onRemove: () => void }) {
     }
   }
 
-  /**
-   * Превью: HEIF по сигнатуре + heic2any, затем createImageBitmap (с учётом EXIF),
-   * при сбое — повторный heic2any и data URL для обычных jpeg/png.
-   */
   useEffect(() => {
     let cancelled = false;
+    setImgHidden(false);
+    revokeActive();
 
-    async function createBitmapLoose(blob: Blob): Promise<ImageBitmap> {
-      try {
-        return await createImageBitmap(blob, {
-          imageOrientation: "from-image",
-        } as ImageBitmapOptions);
-      } catch {
-        return createImageBitmap(blob);
-      }
-    }
-
-    async function bitmapToObjectUrl(bitmap: ImageBitmap): Promise<string | null> {
-      const maxEdge = 280;
-      const { width, height } = bitmap;
-      const scale = Math.min(1, maxEdge / Math.max(width, height, 1));
-      const w = Math.max(1, Math.round(width * scale));
-      const h = Math.max(1, Math.round(height * scale));
-      const canvas = document.createElement("canvas");
-      canvas.width = w;
-      canvas.height = h;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return null;
-      ctx.drawImage(bitmap, 0, 0, w, h);
-      const blob = await new Promise<Blob | null>((resolve) =>
-        canvas.toBlob((b) => resolve(b), "image/jpeg", 0.65),
-      );
-      if (!blob) return null;
-      return URL.createObjectURL(blob);
-    }
-
-    async function decodeFileToPreviewUrl(f: File): Promise<string | null> {
-      let bitmap: ImageBitmap | null = null;
-      try {
-        bitmap = await createBitmapLoose(f);
-        try {
-          return await bitmapToObjectUrl(bitmap);
-        } finally {
-          bitmap.close();
-          bitmap = null;
-        }
-      } catch {
-        if (bitmap) {
-          try {
-            bitmap.close();
-          } catch {
-            /* ignore */
-          }
-        }
-        return null;
-      }
-    }
-
-    async function tryDataUrl(f: File): Promise<string | null> {
-      if (!/^image\/(jpeg|png|webp)/i.test(f.type)) return null;
-      return new Promise((resolve) => {
-        const fr = new FileReader();
-        fr.onload = () =>
-          resolve(typeof fr.result === "string" ? fr.result : null);
-        fr.onerror = () => resolve(null);
-        fr.readAsDataURL(f);
-      });
-    }
-
-    async function buildPreview() {
-      setPreviewBroken(false);
-      revokeActive();
+    let quick: string | null = null;
+    try {
+      quick = URL.createObjectURL(file);
+      activeBlobRef.current = quick;
+      setUrl(quick);
+    } catch {
       setUrl(null);
-
-      const candidates: File[] = [];
-      const prepared = await convertHeicToJpegIfNeeded(file);
-      candidates.push(prepared);
-      if (prepared === file) {
-        const forced = await tryHeic2anyToJpegFile(file);
-        if (forced && forced !== file) candidates.push(forced);
-      }
-
-      for (const cand of candidates) {
-        if (cancelled) return;
-        const u = await decodeFileToPreviewUrl(cand);
-        if (cancelled) return;
-        if (u) {
-          activeBlobRef.current = u;
-          setUrl(u);
-          return;
-        }
-      }
-
-      if (cancelled) return;
-      const dataUrl = await tryDataUrl(file);
-      if (cancelled) return;
-      if (dataUrl) {
-        setUrl(dataUrl);
-        return;
-      }
-
-      try {
-        const direct = URL.createObjectURL(file);
-        activeBlobRef.current = direct;
-        setUrl(direct);
-      } catch {
-        setPreviewBroken(true);
-      }
     }
 
-    void buildPreview();
+    void (async () => {
+      const prepared = await convertHeicToJpegIfNeeded(file);
+      const forced =
+        prepared === file ? await tryHeic2anyToJpegFile(file) : null;
+      const candidates: File[] = [prepared];
+      if (forced && forced !== prepared) candidates.push(forced);
+
+      const seen = new Set<string>();
+      for (const cand of candidates) {
+        const sig = `${cand.name}-${cand.size}-${cand.lastModified}`;
+        if (seen.has(sig)) continue;
+        seen.add(sig);
+        if (cancelled) return;
+        try {
+          let bitmap: ImageBitmap;
+          try {
+            bitmap = await createImageBitmap(cand, {
+              imageOrientation: "from-image",
+            } as ImageBitmapOptions);
+          } catch {
+            bitmap = await createImageBitmap(cand);
+          }
+          try {
+            const maxEdge = 280;
+            const { width, height } = bitmap;
+            const scale = Math.min(1, maxEdge / Math.max(width, height, 1));
+            const w = Math.max(1, Math.round(width * scale));
+            const h = Math.max(1, Math.round(height * scale));
+            const canvas = document.createElement("canvas");
+            canvas.width = w;
+            canvas.height = h;
+            const ctx = canvas.getContext("2d");
+            if (!ctx) continue;
+            ctx.drawImage(bitmap, 0, 0, w, h);
+            const blob = await new Promise<Blob | null>((resolve) =>
+              canvas.toBlob((b) => resolve(b), "image/jpeg", 0.65),
+            );
+            if (cancelled || !blob) continue;
+            const improved = URL.createObjectURL(blob);
+            setUrl((prev) => {
+              if (prev) URL.revokeObjectURL(prev);
+              activeBlobRef.current = improved;
+              return improved;
+            });
+            setImgHidden(false);
+            return;
+          } finally {
+            bitmap.close();
+          }
+        } catch {
+          /* следующий кандидат */
+        }
+      }
+    })();
+
     return () => {
       cancelled = true;
       revokeActive();
@@ -159,30 +130,29 @@ function PhotoThumb({ file, onRemove }: { file: File; onRemove: () => void }) {
     };
   }, [file]);
 
+  const label = (file.name || "фото").replace(/^.*[\\/]/, "").slice(0, 22);
+
   return (
-    <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-xl border border-fuchsia-200 bg-fuchsia-50/40">
-      {previewBroken ? (
-        <div className="flex h-full w-full items-center justify-center p-1 text-center text-[10px] leading-tight text-muted-foreground">
-          {file.name.slice(0, 12)}…
-        </div>
-      ) : url ? (
-        // eslint-disable-next-line @next/next/no-img-element -- blob: превью; next/image с blob часто ломается
+    <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-xl border border-fuchsia-200 bg-fuchsia-50/40 shadow-sm">
+      <div className="pointer-events-none absolute inset-0 z-0 flex flex-col items-center justify-center gap-0.5 bg-gradient-to-b from-fuchsia-50 to-fuchsia-100/90 p-1">
+        <ImageIcon className="h-7 w-7 shrink-0 text-fuchsia-500" aria-hidden />
+        <span className="line-clamp-2 w-full max-w-[4.75rem] text-center text-[8px] font-medium leading-tight text-neutral-700">
+          {label}
+        </span>
+      </div>
+      {url && !imgHidden ? (
+        // eslint-disable-next-line @next/next/no-img-element -- blob: превью
         <img
           src={url}
           alt=""
-          className="h-full w-full object-cover"
-          onError={() => setPreviewBroken(true)}
+          className="absolute inset-0 z-10 h-full w-full object-cover"
+          onError={() => setImgHidden(true)}
         />
-      ) : (
-        <div
-          className="h-full w-full animate-pulse bg-fuchsia-100/60"
-          aria-hidden
-        />
-      )}
+      ) : null}
       <button
         type="button"
         onClick={onRemove}
-        className="absolute right-0.5 top-0.5 flex h-6 w-6 items-center justify-center rounded-full border border-fuchsia-200 bg-white/95 text-sm font-bold text-neutral-800 shadow-sm hover:bg-fuchsia-50"
+        className="absolute right-0.5 top-0.5 z-20 flex h-6 w-6 items-center justify-center rounded-full border border-fuchsia-200 bg-white/95 text-sm font-bold text-neutral-800 shadow-sm hover:bg-fuchsia-50"
         aria-label="Удалить это фото"
       >
         ×
@@ -236,8 +206,8 @@ export function OrderForm() {
   const [lightboxSrc, setLightboxSrc] = useState("");
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lines, setLines] = useState<OrderLineState[]>([createLine()]);
-  /** Фото по строкам заказа; для «как на предыдущей» при отправке копируются с предыдущей строки */
-  const [linePhotos, setLinePhotos] = useState<File[][]>([[]]);
+  /** Фото по строкам заказа; стабильный id — чтобы React не терял слот при одинаковых именах с телефона */
+  const [linePhotos, setLinePhotos] = useState<PhotoSlot[][]>([[]]);
   const [photoError, setPhotoError] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [lastOrderId, setLastOrderId] = useState<string | null>(null);
@@ -258,7 +228,7 @@ export function OrderForm() {
       if (prev.length < lines.length) {
         return [
           ...prev,
-          ...Array.from({ length: lines.length - prev.length }, () => [] as File[]),
+          ...Array.from({ length: lines.length - prev.length }, () => [] as PhotoSlot[]),
         ];
       }
       return prev.slice(0, lines.length);
@@ -364,31 +334,45 @@ export function OrderForm() {
     setStatus("sending");
     const form = e.currentTarget;
 
-    const compressedCache = new Map<File, File>();
-    async function compressOne(f: File): Promise<File> {
-      const hit = compressedCache.get(f);
-      if (hit) return hit;
-      const c = await compressImageForUpload(f);
-      compressedCache.set(f, c);
-      return c;
-    }
+    let compressedByLine: File[][];
+    try {
+      const compressedCache = new Map<File, File>();
+      async function compressOne(f: File): Promise<File> {
+        const hit = compressedCache.get(f);
+        if (hit) return hit;
+        const c = await compressImageForUpload(f);
+        compressedCache.set(f, c);
+        return c;
+      }
 
-    const compressedByLine: File[][] = [];
-    for (let i = 0; i < lines.length; i++) {
-      const locked = i > 0 && lines[i]!.sameAsPrevious;
+      compressedByLine = [];
+      for (let i = 0; i < lines.length; i++) {
+        const locked = i > 0 && lines[i]!.sameAsPrevious;
       const src = locked ? (linePhotos[i - 1] ?? []) : (linePhotos[i] ?? []);
-      compressedByLine.push(await Promise.all(src.map((f) => compressOne(f))));
-    }
-
-    let totalBytes = 0;
-    for (const arr of compressedByLine) {
-      for (const f of arr) totalBytes += f.size;
-    }
-    if (totalBytes > MAX_ORDER_UPLOAD_BYTES) {
-      setPhotoError(
-        `Суммарный размер фото всё ещё слишком большой (~${Math.max(1, Math.round(totalBytes / 1024 / 1024))} МБ). Удалите лишние снимки или в настройках камеры выберите меньшее качество.`,
+      compressedByLine.push(
+        await Promise.all(src.map((slot) => compressOne(slot.file))),
       );
-      setStatus("idle");
+      }
+
+      let totalBytes = 0;
+      for (const arr of compressedByLine) {
+        for (const f of arr) totalBytes += f.size;
+      }
+      if (totalBytes > MAX_ORDER_UPLOAD_BYTES) {
+        setPhotoError(
+          `Суммарный размер фото всё ещё слишком большой (~${Math.max(1, Math.round(totalBytes / 1024 / 1024))} МБ). Удалите лишние снимки или в настройках камеры выберите меньшее качество.`,
+        );
+        setStatus("idle");
+        return;
+      }
+    } catch (err) {
+      setStatus("error");
+      setSubmitError(
+        err instanceof Error
+          ? `Не удалось подготовить фото: ${err.message}`
+          : "Не удалось подготовить фото к отправке. Попробуйте другие файлы.",
+      );
+      setLastOrderId(null);
       return;
     }
 
@@ -529,14 +513,16 @@ export function OrderForm() {
                 {!locked ? (
                   <div className="space-y-3">
                     <div className="flex flex-wrap gap-2">
-                      {(linePhotos[index] ?? []).map((file, pi) => (
+                      {(linePhotos[index] ?? []).map((slot) => (
                         <PhotoThumb
-                          key={`${file.name}-${file.size}-${file.lastModified}-${pi}`}
-                          file={file}
+                          key={slot.id}
+                          file={slot.file}
                           onRemove={() =>
                             setLinePhotos((prev) => {
                               const next = prev.map((a) => [...a]);
-                              next[index] = (next[index] ?? []).filter((_, j) => j !== pi);
+                              next[index] = (next[index] ?? []).filter(
+                                (s) => s.id !== slot.id,
+                              );
                               return next;
                             })
                           }
@@ -555,7 +541,10 @@ export function OrderForm() {
                         setLinePhotos((prev) => {
                           const next = prev.map((a) => [...a]);
                           const cur = next[index] ?? [];
-                          const merged = [...cur, ...Array.from(picked)].slice(
+                          const added: PhotoSlot[] = Array.from(picked).map(
+                            (f) => ({ id: newPhotoId(), file: f }),
+                          );
+                          const merged = [...cur, ...added].slice(
                             0,
                             MAX_PHOTOS_PER_LINE,
                           );

@@ -69,13 +69,23 @@ export async function saveOrderSubmission(
   const pendingFiles: { key: string; file: File }[] = [];
 
   for (const [key, value] of formData.entries()) {
-    if (value instanceof File) {
-      if (value.size > 0) pendingFiles.push({ key, file: value });
+    if (typeof value === "string") {
+      const list = stringFields.get(key);
+      if (list) list.push(value);
+      else stringFields.set(key, [value]);
       continue;
     }
-    const list = stringFields.get(key);
-    if (list) list.push(String(value));
-    else stringFields.set(key, [String(value)]);
+    /* В типах только File | string, но в Node multipart иногда приходит Blob без File */
+    const blob = value as unknown as Blob;
+    if (blob.size > 0) {
+      const file =
+        blob instanceof File
+          ? blob
+          : new File([blob], "photo.jpg", {
+              type: blob.type || "application/octet-stream",
+            });
+      pendingFiles.push({ key, file });
+    }
   }
 
   const fileBuffers: FileBufferEntry[] = [];

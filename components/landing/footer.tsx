@@ -22,11 +22,11 @@ export function Footer() {
               <li>
                 <a
                   className="transition-colors hover:text-dogood-pink"
-                  href="https://t.me/SmSvetiko"
+                  href="https://t.me/DoGoodBrand"
                   target="_blank"
                   rel="noopener noreferrer"
                 >
-                  Telegram · @SmSvetiko
+                  Telegram · @DoGoodBrand
                 </a>
               </li>
             </ul>
