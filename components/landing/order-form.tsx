@@ -1,7 +1,7 @@
 "use client";
 
 import type { FormEvent } from "react";
-import { useCallback, useEffect, useId, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import Image from "next/image";
 import { DogoodButton } from "@/components/ui/dogood-button";
 import { ImageLightbox } from "@/components/ui/image-lightbox";
@@ -12,6 +12,10 @@ import {
   printStyles,
   shelters,
 } from "@/lib/landing-data";
+import {
+  compressImageForUpload,
+  MAX_ORDER_UPLOAD_BYTES,
+} from "@/lib/compress-order-image";
 
 const fieldClass =
   "mt-1 w-full rounded-2xl border border-fuchsia-200 bg-white px-4 py-3 text-sm text-foreground outline-none transition-shadow placeholder:text-neutral-500 focus:border-dogood-pink focus:ring-2 focus:ring-dogood-pink/25";
@@ -24,16 +28,67 @@ const MAX_PHOTOS_PER_LINE = 8;
 function PhotoThumb({ file, onRemove }: { file: File; onRemove: () => void }) {
   const [url, setUrl] = useState<string | null>(null);
   const [previewBroken, setPreviewBroken] = useState(false);
+  const decodeAttempted = useRef(false);
+  /** Активный blob: для корректного revoke при смене файла и после JPEG-фолбэка */
+  const activeBlobRef = useRef<string | null>(null);
 
   // Нельзя держать blob URL в useMemo: в dev Strict Mode эффект отзывает URL, а мемо отдаёт старый (битый) адрес.
   useEffect(() => {
+    decodeAttempted.current = false;
     const objectUrl = URL.createObjectURL(file);
+    activeBlobRef.current = objectUrl;
     setUrl(objectUrl);
     setPreviewBroken(false);
     return () => {
-      URL.revokeObjectURL(objectUrl);
+      if (activeBlobRef.current) {
+        URL.revokeObjectURL(activeBlobRef.current);
+        activeBlobRef.current = null;
+      }
     };
   }, [file]);
+
+  /** HEIC/WebP и часть мобильных браузеров не рисуют исходный blob в <img> — делаем JPEG-превью через canvas. */
+  async function tryDecodePreview() {
+    if (decodeAttempted.current) return;
+    decodeAttempted.current = true;
+    try {
+      const bitmap = await createImageBitmap(file);
+      try {
+        const maxEdge = 320;
+        const { width, height } = bitmap;
+        const scale = Math.min(1, maxEdge / Math.max(width, height));
+        const w = Math.max(1, Math.round(width * scale));
+        const h = Math.max(1, Math.round(height * scale));
+        const canvas = document.createElement("canvas");
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) {
+          setPreviewBroken(true);
+          return;
+        }
+        ctx.drawImage(bitmap, 0, 0, w, h);
+        const blob = await new Promise<Blob | null>((resolve) =>
+          canvas.toBlob((b) => resolve(b), "image/jpeg", 0.82),
+        );
+        if (!blob) {
+          setPreviewBroken(true);
+          return;
+        }
+        const jpegUrl = URL.createObjectURL(blob);
+        setUrl((prev) => {
+          if (prev) URL.revokeObjectURL(prev);
+          activeBlobRef.current = jpegUrl;
+          return jpegUrl;
+        });
+        setPreviewBroken(false);
+      } finally {
+        bitmap.close();
+      }
+    } catch {
+      setPreviewBroken(true);
+    }
+  }
 
   return (
     <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-xl border border-fuchsia-200 bg-fuchsia-50/40">
@@ -47,7 +102,9 @@ function PhotoThumb({ file, onRemove }: { file: File; onRemove: () => void }) {
           src={url}
           alt=""
           className="h-full w-full object-cover"
-          onError={() => setPreviewBroken(true)}
+          onError={() => {
+            void tryDecodePreview();
+          }}
         />
       ) : (
         <div
@@ -180,6 +237,14 @@ export function OrderForm() {
     setLinePhotos((prev) => [...prev, []]);
   };
 
+  const removeLine = (index: number) => {
+    if (index === 0) return;
+    setLines((prev) => (prev.length <= 1 ? prev : prev.filter((_, i) => i !== index)));
+    setLinePhotos((prev) =>
+      prev.length <= 1 ? prev : prev.filter((_, i) => i !== index),
+    );
+  };
+
   async function handleDeliveryEstimate() {
     const addressInput = document.getElementById(
       `${baseId}-address`,
@@ -229,27 +294,44 @@ export function OrderForm() {
     setPhotoError(null);
     setSubmitError(null);
 
-    for (let i = 0; i < lines.length; i++) {
-      const locked = i > 0 && lines[i]!.sameAsPrevious;
-      if (locked) continue;
-      const photos = linePhotos[i] ?? [];
-      if (photos.length < 1) {
-        setPhotoError(`Добавьте хотя бы одно фото собаки для футболки ${i + 1}.`);
-        return;
-      }
-    }
-
     setStatus("sending");
     const form = e.currentTarget;
+
+    const compressedCache = new Map<File, File>();
+    async function compressOne(f: File): Promise<File> {
+      const hit = compressedCache.get(f);
+      if (hit) return hit;
+      const c = await compressImageForUpload(f);
+      compressedCache.set(f, c);
+      return c;
+    }
+
+    const compressedByLine: File[][] = [];
+    for (let i = 0; i < lines.length; i++) {
+      const locked = i > 0 && lines[i]!.sameAsPrevious;
+      const src = locked ? (linePhotos[i - 1] ?? []) : (linePhotos[i] ?? []);
+      compressedByLine.push(await Promise.all(src.map((f) => compressOne(f))));
+    }
+
+    let totalBytes = 0;
+    for (const arr of compressedByLine) {
+      for (const f of arr) totalBytes += f.size;
+    }
+    if (totalBytes > MAX_ORDER_UPLOAD_BYTES) {
+      setPhotoError(
+        `Суммарный размер фото всё ещё слишком большой (~${Math.max(1, Math.round(totalBytes / 1024 / 1024))} МБ). Удалите лишние снимки или в настройках камеры выберите меньшее качество.`,
+      );
+      setStatus("idle");
+      return;
+    }
+
     const formData = new FormData(form);
 
     for (let i = 0; i < lines.length; i++) {
       formData.delete(`items[${i}][photos]`);
     }
     for (let i = 0; i < lines.length; i++) {
-      const locked = i > 0 && lines[i]!.sameAsPrevious;
-      const src = locked ? (linePhotos[i - 1] ?? []) : (linePhotos[i] ?? []);
-      for (const file of src) {
+      for (const file of compressedByLine[i] ?? []) {
         formData.append(`items[${i}][photos]`, file);
       }
     }
@@ -267,10 +349,15 @@ export function OrderForm() {
         /* не JSON */
       }
       if (!res.ok) {
+        const looksLikeNetlifyCrash =
+          /Internal Error/i.test(raw) ||
+          raw.trimStart().startsWith("<!DOCTYPE");
         const hint =
           res.status === 413
             ? "Файлы слишком большие для сервера (попробуйте фото меньшего размера)."
-            : (data.detail ?? raw.slice(0, 200)) || `Ошибка ${res.status}`;
+            : looksLikeNetlifyCrash || res.status === 500
+              ? "Сервер не обработал заявку (часто из‑за тяжёлых фото или сети). Попробуйте меньше снимков или другое фото."
+              : (data.detail ?? raw.slice(0, 200)) || `Ошибка ${res.status}`;
         setSubmitError(hint);
         setStatus("error");
         setLastOrderId(null);
@@ -297,7 +384,7 @@ export function OrderForm() {
       <SectionHeading
         eyebrow="заявка"
         title="Соберём заказ вместе"
-        description="Заполните форму и прикрепите фото собаки — в течение 1–2 дней свяжемся с вами, пришлём макет футболки и данные по оплате."
+        description="Заполните форму (фото можно приложить сразу или прислать позже в Telegram) — в течение 1–2 дней свяжемся с вами, пришлём макет футболки и данные по оплате."
       />
 
       <form
@@ -327,11 +414,22 @@ export function OrderForm() {
               className="space-y-4 border-t border-fuchsia-200 pt-6"
             >
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <h3 className="font-display text-lg font-bold uppercase tracking-wide text-foreground">
-                  Футболка {index + 1}
-                </h3>
+                <div className="flex flex-wrap items-center gap-3">
+                  <h3 className="font-display text-lg font-bold uppercase tracking-wide text-foreground">
+                    Футболка {index + 1}
+                  </h3>
+                  {index > 0 ? (
+                    <button
+                      type="button"
+                      onClick={() => removeLine(index)}
+                      className="text-xs font-semibold uppercase tracking-wide text-muted-foreground underline decoration-fuchsia-300 underline-offset-2 transition-colors hover:text-red-600 hover:decoration-red-400"
+                    >
+                      Удалить эту футболку
+                    </button>
+                  ) : null}
+                </div>
                 <p className="text-xs text-muted-foreground">
-                  Унисекс, one size — единый оверсайд-крой.
+                  Унисекс, one size — единый комфортный оверсайз-крой.
                 </p>
               </div>
 
@@ -362,7 +460,7 @@ export function OrderForm() {
 
               <div>
                 <label className={labelClass}>
-                  Фото собаки (от 1 файла, лучше несколько — можно удалить лишнее)
+                  Фото собаки, желательно — мордочки и во весь рост
                 </label>
                 {!locked ? (
                   <div className="space-y-3">
@@ -408,9 +506,21 @@ export function OrderForm() {
                       htmlFor={`photo-pick-${line.id}`}
                       className={`${fieldClass} inline-flex w-full cursor-pointer items-center justify-center text-center text-sm font-medium text-fuchsia-800`}
                     >
-                      + добавить фото (
-                      {(linePhotos[index] ?? []).length}/{MAX_PHOTOS_PER_LINE}, минимум 1)
+                      + добавить фото
                     </label>
+                    <p className="text-xs leading-relaxed text-muted-foreground">
+                      Загрузка превью может занять пару секунд. Если не получается подгрузить фото —
+                      напишите нам в{" "}
+                      <a
+                        href="https://t.me/SmSvetiko"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="font-medium text-fuchsia-700 underline decoration-fuchsia-300 underline-offset-2 hover:text-fuchsia-900"
+                      >
+                        Telegram
+                      </a>
+                      .
+                    </p>
                   </div>
                 ) : (
                   <>
@@ -424,10 +534,6 @@ export function OrderForm() {
                     </p>
                   </>
                 )}
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Заказ можно оформить с одним фото. Если есть ещё кадры — лучше: желательно мордочка и
-                  снимок в полный рост.
-                </p>
               </div>
 
               {!locked ? (
@@ -448,7 +554,7 @@ export function OrderForm() {
                         updateLine(index, { dogName: e.target.value })
                       }
                       className={fieldClass}
-                      placeholder="Как хотите видеть на вещи"
+                      placeholder="Как хотите: на русском или английском"
                     />
                   </div>
 
