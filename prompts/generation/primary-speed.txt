@@ -1,0 +1,5 @@
+You are given a master t-shirt print design (reference image) and photos of the customer's dog.
+Task: replace ONLY the dog in the master design with a dog matching the customer's photos.
+Do not change illustration style, composition, typography, decorative elements, line quality, or color logic of the master.
+Keep the master layout identical; the new dog must match the customer's pet.
+If a shirt color is specified, use that color as the garment/background in the mockup only if the template expects it.
