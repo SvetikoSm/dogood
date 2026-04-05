@@ -606,7 +606,7 @@ void main() {
   }
 }
 
-/** Narrow view of shader uniforms mutated from React props (avoids `any` in the effect). */
+/** Shape of `mesh.material.uniforms` that `GradientWave` mutates after init (validated at runtime). */
 type GradientWaveRuntimeUniforms = {
   u_shadow_power: { value: number };
   u_darken_top: { value: number };
@@ -618,6 +618,37 @@ type GradientWaveRuntimeUniforms = {
   };
   u_vertDeform: { value: Record<string, unknown> };
 };
+
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+function isVec2NumberPair(v: unknown): v is [number, number] {
+  return (
+    Array.isArray(v) &&
+    v.length === 2 &&
+    typeof v[0] === "number" &&
+    typeof v[1] === "number"
+  );
+}
+
+function isGradientWaveRuntimeUniforms(u: unknown): u is GradientWaveRuntimeUniforms {
+  if (!isPlainObject(u)) return false;
+  const sp = u["u_shadow_power"];
+  const dt = u["u_darken_top"];
+  const ug = u["u_global"];
+  const vd = u["u_vertDeform"];
+  if (!isPlainObject(sp) || typeof sp["value"] !== "number") return false;
+  if (!isPlainObject(dt) || typeof dt["value"] !== "number") return false;
+  if (!isPlainObject(ug) || !isPlainObject(ug["value"])) return false;
+  const gInner = ug["value"];
+  const nFreq = gInner["noiseFreq"];
+  const nSpeed = gInner["noiseSpeed"];
+  if (!isPlainObject(nFreq) || !isVec2NumberPair(nFreq["value"])) return false;
+  if (!isPlainObject(nSpeed) || typeof nSpeed["value"] !== "number") return false;
+  if (!isPlainObject(vd) || !isPlainObject(vd["value"])) return false;
+  return true;
+}
 
 interface GradientWaveProps {
   colors?: string[];
@@ -669,7 +700,13 @@ export function GradientWave({
     try {
       const gradient = new Gradient(canvas, colors);
       gradientRef.current = gradient;
-      const uniforms = gradient.mesh.material.uniforms as GradientWaveRuntimeUniforms;
+      const raw = gradient.mesh.material.uniforms;
+      if (!isGradientWaveRuntimeUniforms(raw)) {
+        console.error("GradientWave: unexpected uniform layout from Gradient");
+        container.removeChild(canvas);
+        return;
+      }
+      const uniforms = raw;
       uniforms.u_shadow_power.value = shadowPower;
       uniforms.u_darken_top.value = darkenTop ? 1 : 0;
       uniforms.u_global.value.noiseFreq.value = noiseFrequency;
