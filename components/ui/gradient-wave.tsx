@@ -30,6 +30,8 @@ class MiniGl {
     this.gl = gl;
 
     const context = this.gl;
+    // Nested class needs the outer MiniGl instance; `this` alias is intentional here.
+    // eslint-disable-next-line @typescript-eslint/no-this-alias -- WebGL Uniform/Attribute nested classes
     const miniGl = this;
 
     this.Uniform = class {
@@ -62,14 +64,17 @@ class MiniGl {
         const method = context[fn];
         if (typeof method !== "function") return;
 
+        /* WebGL методы требуют this === контекст; иначе Illegal invocation */
         if (isMatrix) {
-          (method as unknown as (loc: WebGLUniformLocation | null, t: boolean, v: unknown) => void)(
+          (method as (this: WebGLRenderingContext, loc: WebGLUniformLocation | null, t: boolean, v: unknown) => void).call(
+            context,
             location,
             this.transpose || false,
             this.value,
           );
         } else {
-          (method as unknown as (loc: WebGLUniformLocation | null, v: unknown) => void)(
+          (method as (this: WebGLRenderingContext, loc: WebGLUniformLocation | null, v: unknown) => void).call(
+            context,
             location,
             this.value,
           );
@@ -148,6 +153,7 @@ ${fields}
       program!: WebGLProgram;
 
       constructor(vertexShaders: string, fragments: string, uniforms: Record<string, UniformType> = {}) {
+        // eslint-disable-next-line @typescript-eslint/no-this-alias -- Material helpers close over instance
         const material = this;
 
         function getShader(type: number, source: string): WebGLShader {
@@ -600,6 +606,19 @@ void main() {
   }
 }
 
+/** Narrow view of shader uniforms mutated from React props (avoids `any` in the effect). */
+type GradientWaveRuntimeUniforms = {
+  u_shadow_power: { value: number };
+  u_darken_top: { value: number };
+  u_global: {
+    value: {
+      noiseFreq: { value: [number, number] };
+      noiseSpeed: { value: number };
+    };
+  };
+  u_vertDeform: { value: Record<string, unknown> };
+};
+
 interface GradientWaveProps {
   colors?: string[];
   isPlaying?: boolean;
@@ -634,7 +653,8 @@ export function GradientWave({
   const gradientRef = useRef<Gradient | null>(null);
 
   useEffect(() => {
-    if (!containerRef.current) return;
+    const container = containerRef.current;
+    if (!container) return;
     const canvas = document.createElement("canvas");
     Object.assign(canvas.style, {
       position: "absolute",
@@ -644,12 +664,12 @@ export function GradientWave({
       height: "100%",
       display: "block",
     });
-    containerRef.current.appendChild(canvas);
+    container.appendChild(canvas);
 
     try {
       const gradient = new Gradient(canvas, colors);
       gradientRef.current = gradient;
-      const uniforms = gradient.mesh.material.uniforms as Record<string, any>;
+      const uniforms = gradient.mesh.material.uniforms as GradientWaveRuntimeUniforms;
       uniforms.u_shadow_power.value = shadowPower;
       uniforms.u_darken_top.value = darkenTop ? 1 : 0;
       uniforms.u_global.value.noiseFreq.value = noiseFrequency;
@@ -665,8 +685,8 @@ export function GradientWave({
 
     return () => {
       gradientRef.current?.stop();
-      if (containerRef.current?.contains(canvas)) {
-        containerRef.current.removeChild(canvas);
+      if (container.contains(canvas)) {
+        container.removeChild(canvas);
       }
     };
   }, [colors, isPlaying, shadowPower, darkenTop, noiseSpeed, noiseFrequency, deform]);
