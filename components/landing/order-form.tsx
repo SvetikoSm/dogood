@@ -770,12 +770,11 @@ export function OrderForm() {
                     </div>
                     {line.printStyle === "rainy" ? (
                       <p className="mt-2 text-xs text-muted-foreground">
-                        Для стиля «No rainy days» чаще выбирают белую футболку; на чёрной можно
-                        настроить цвет принта ниже.
+                        С этим стилем советуем белый цвет футболки.
                       </p>
                     ) : null}
                   </div>
-                  {line.color === "black" ? (
+                  {line.printStyle === "rainy" && line.color === "black" ? (
                     <div>
                       <p className={labelClass}>Цвет принта на чёрной футболке</p>
                       <div className="mt-2 flex flex-wrap gap-3">
@@ -1037,9 +1036,6 @@ export function OrderForm() {
             </button>
             {deliveryQuote ? (
               <div className="min-w-0 flex-1 space-y-1 text-sm text-foreground">
-                <p className="text-xs text-muted-foreground">
-                  {deliveryQuote.zoneLabel}
-                </p>
                 <p>
                   {deliveryQuote.carrierLabel}:{" "}
                   <span className="font-semibold">

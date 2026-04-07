@@ -148,6 +148,6 @@ function ensureHeaderRow(sheet) {
   if (ORDER_SHEET_HEADERS.length > existing.length) {
     var start = existing.length;
     var slice = ORDER_SHEET_HEADERS.slice(start);
-    sheet.getRange(1, start + 1, 1, ORDER_SHEET_HEADERS.length).setValues([slice]);
+    sheet.getRange(1, start + 1, 1, slice.length).setValues([slice]);
   }
 }

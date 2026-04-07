@@ -23,32 +23,17 @@ function detectZone(address: string): "moscow" | "regional" | "far" {
   return "regional";
 }
 
-const zoneLabels: Record<
-  ReturnType<typeof detectZone>,
-  string
-> = {
-  moscow: "Москва (ориентир для ПВЗ в городе)",
-  regional:
-    "Россия, вне Москвы — ориентир выше, чем для Москвы: расстояние и тариф перевозчика",
-  far: "Дальний регион — ориентир выше, чем для Москвы и большинства городов России",
-};
-
 function getQuote(address: string, method: DeliveryMethod) {
   const zone = detectZone(address);
   const matrix: Record<DeliveryMethod, Record<typeof zone, number>> = {
     wb: { moscow: 180, regional: 290, far: 490 },
     cdek: { moscow: 260, regional: 420, far: 690 },
   };
-  const eta: Record<typeof zone, string> = {
-    moscow: "1-2 дня",
-    regional: "2-5 дней",
-    far: "5-9 дней",
-  };
   return {
     priceRub: matrix[method][zone],
-    etaDays: eta[zone],
+    etaDays: "2-4 дней",
     carrierLabel: carrierLabels[method],
-    zoneLabel: zoneLabels[zone],
+    zoneLabel: "",
     note:
       "Стоимость доставки на сайте указана приблизительно. Точный тариф зависит от выбранной службы (Wildberries/СДЭК) и оплачивается получателем при получении.",
   };
