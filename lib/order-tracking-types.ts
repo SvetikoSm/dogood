@@ -18,7 +18,11 @@ export type TrackedOrderLine = {
   /** id стиля: life | speed | rainy */
   printStyle: string;
   printStyleLabel: string;
+  gender: string;
+  size: string;
   color: string;
+  /** Цвет принта на чёрной футболке; пусто, если не применимо */
+  printColor: string;
   sameAsPrevious: boolean;
   /** если «как на предыдущей» — откуда брать фото */
   mirrorPhotosFromLine: number | null;
@@ -34,10 +38,15 @@ export type TrackedOrder = {
   createdAt: string;
   updatedAt: string;
   customer: {
+    /** ФИО получателя (как в форме заказа) */
     name: string;
     email: string;
     phone: string;
     promoCode: string | null;
+  };
+  legal: {
+    consentPersonalData: boolean;
+    consentTerms: boolean;
   };
   delivery: {
     address: string;

@@ -2,25 +2,25 @@
 
 import type { FormEvent } from "react";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
-import Image from "next/image";
+import Link from "next/link";
 import { DogoodButton } from "@/components/ui/dogood-button";
 import { ImageLightbox } from "@/components/ui/image-lightbox";
 import { Section, SectionHeading } from "@/components/ui/section";
 import {
+  blackShirtPrintColors,
   catalogDesignTemplates,
   deliveryMethods,
   printStyles,
-  shelters,
+  shirtColors,
+  shirtGenders,
+  shirtSizes,
+  sheltersForOrderForm,
 } from "@/lib/landing-data";
 import { Image as ImageIcon } from "lucide-react";
 import {
   compressImageForUpload,
   MAX_ORDER_UPLOAD_BYTES,
 } from "@/lib/compress-order-image";
-import {
-  convertHeicToJpegIfNeeded,
-  tryHeic2anyToJpegFile,
-} from "@/lib/heic-to-jpeg-client";
 
 const fieldClass =
   "mt-1 w-full rounded-2xl border border-fuchsia-200 bg-white px-4 py-3 text-sm text-foreground outline-none transition-shadow placeholder:text-neutral-500 focus:border-dogood-pink focus:ring-2 focus:ring-dogood-pink/25";
@@ -38,10 +38,7 @@ function newPhotoId(): string {
     : `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
 }
 
-/**
- * Сразу показываем иконку + имя файла (всегда видно, что фото прикреплено),
- * поверх — быстрый blob:URL; затем при необходимости заменяем на JPEG после декодирования.
- */
+/** Быстрое превью выбранного файла (важно для мобильных). */
 function PhotoThumb({ file, onRemove }: { file: File; onRemove: () => void }) {
   const [url, setUrl] = useState<string | null>(null);
   const [imgHidden, setImgHidden] = useState(false);
@@ -55,76 +52,18 @@ function PhotoThumb({ file, onRemove }: { file: File; onRemove: () => void }) {
   }
 
   useEffect(() => {
-    let cancelled = false;
     setImgHidden(false);
     revokeActive();
 
-    let quick: string | null = null;
     try {
-      quick = URL.createObjectURL(file);
+      const quick = URL.createObjectURL(file);
       activeBlobRef.current = quick;
       setUrl(quick);
     } catch {
       setUrl(null);
     }
 
-    void (async () => {
-      const prepared = await convertHeicToJpegIfNeeded(file);
-      const forced =
-        prepared === file ? await tryHeic2anyToJpegFile(file) : null;
-      const candidates: File[] = [prepared];
-      if (forced && forced !== prepared) candidates.push(forced);
-
-      const seen = new Set<string>();
-      for (const cand of candidates) {
-        const sig = `${cand.name}-${cand.size}-${cand.lastModified}`;
-        if (seen.has(sig)) continue;
-        seen.add(sig);
-        if (cancelled) return;
-        try {
-          let bitmap: ImageBitmap;
-          try {
-            bitmap = await createImageBitmap(cand, {
-              imageOrientation: "from-image",
-            } as ImageBitmapOptions);
-          } catch {
-            bitmap = await createImageBitmap(cand);
-          }
-          try {
-            const maxEdge = 280;
-            const { width, height } = bitmap;
-            const scale = Math.min(1, maxEdge / Math.max(width, height, 1));
-            const w = Math.max(1, Math.round(width * scale));
-            const h = Math.max(1, Math.round(height * scale));
-            const canvas = document.createElement("canvas");
-            canvas.width = w;
-            canvas.height = h;
-            const ctx = canvas.getContext("2d");
-            if (!ctx) continue;
-            ctx.drawImage(bitmap, 0, 0, w, h);
-            const blob = await new Promise<Blob | null>((resolve) =>
-              canvas.toBlob((b) => resolve(b), "image/jpeg", 0.65),
-            );
-            if (cancelled || !blob) continue;
-            const improved = URL.createObjectURL(blob);
-            setUrl((prev) => {
-              if (prev) URL.revokeObjectURL(prev);
-              activeBlobRef.current = improved;
-              return improved;
-            });
-            setImgHidden(false);
-            return;
-          } finally {
-            bitmap.close();
-          }
-        } catch {
-          /* следующий кандидат */
-        }
-      }
-    })();
-
     return () => {
-      cancelled = true;
       revokeActive();
       setUrl(null);
     };
@@ -167,7 +106,10 @@ export type OrderLineState = {
   dogName: string;
   breed: string;
   printStyle: string;
+  gender: string;
+  size: string;
   color: string;
+  printColor: string;
 };
 
 function createLine(): OrderLineState {
@@ -177,7 +119,10 @@ function createLine(): OrderLineState {
     dogName: "",
     breed: "",
     printStyle: printStyles[0]!.value,
+    gender: shirtGenders[0]!.value,
+    size: shirtSizes[1]!.value,
     color: "white",
+    printColor: blackShirtPrintColors[0]!.value,
   };
 }
 
@@ -200,6 +145,7 @@ export function OrderForm() {
     priceRub: number;
     etaDays: string;
     carrierLabel: string;
+    zoneLabel: string;
     note: string;
   } | null>(null);
   const [previewAttempt, setPreviewAttempt] = useState<Record<string, number>>({});
@@ -211,6 +157,8 @@ export function OrderForm() {
   const [photoError, setPhotoError] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [lastOrderId, setLastOrderId] = useState<string | null>(null);
+  /** Предупреждение после успешного HTTP, если Google-вебхук не настроен (dev) */
+  const [doneGoogleNotice, setDoneGoogleNotice] = useState<string | null>(null);
 
   useEffect(() => {
     const styleFromUrl = getStyleFromUrl();
@@ -315,6 +263,7 @@ export function OrderForm() {
           priceRub: number;
           etaDays: string;
           carrierLabel: string;
+          zoneLabel: string;
           note: string;
         };
       };
@@ -330,6 +279,7 @@ export function OrderForm() {
     e.preventDefault();
     setPhotoError(null);
     setSubmitError(null);
+    setDoneGoogleNotice(null);
 
     setStatus("sending");
     const form = e.currentTarget;
@@ -393,7 +343,12 @@ export function OrderForm() {
         body: formData,
       });
       const raw = await res.text();
-      let data: { orderId?: string; detail?: string } = {};
+      let data: {
+        orderId?: string;
+        detail?: string;
+        googleWebhook?: "skipped" | "ok" | "error";
+        googleWebhookError?: string;
+      } = {};
       try {
         data = JSON.parse(raw) as typeof data;
       } catch {
@@ -414,7 +369,27 @@ export function OrderForm() {
         setLastOrderId(null);
         return;
       }
+
+      if (data.googleWebhook === "error") {
+        const detail = data.googleWebhookError?.trim();
+        setSubmitError(
+          detail
+            ? `Данные не дошли до Google (таблица/Диск). Заявка на сайте: ${data.orderId ?? "—"}. ${detail.slice(0, 280)}${detail.length > 280 ? "…" : ""} Сохраните номер и напишите нам — или отправьте форму ещё раз.`
+            : `Не удалось отправить заявку в Google. Номер на сайте: ${data.orderId ?? "—"}. Попробуйте позже или свяжитесь с нами.`,
+        );
+        setLastOrderId(data.orderId ?? null);
+        setStatus("error");
+        return;
+      }
+
       setLastOrderId(data.orderId ?? null);
+      if (data.googleWebhook === "skipped") {
+        setDoneGoogleNotice(
+          "Отправка в Google Таблицу и Диск на сервере не настроена — заявка принята только на стороне сайта. Сохраните номер и напишите нам.",
+        );
+      } else {
+        setDoneGoogleNotice(null);
+      }
       setStatus("done");
       form.reset();
       setLines([createLine()]);
@@ -435,7 +410,7 @@ export function OrderForm() {
       <SectionHeading
         eyebrow="заявка"
         title="Соберём заказ вместе"
-        description="Заполните форму — в течение 1–2 дней свяжемся с вами, пришлём макет футболки и данные по оплате."
+        description="Заполните форму: принт по фото вашего питомца (собака, кошка и не только). В течение 1–2 дней свяжемся, пришлём макет и данные по оплате."
       />
 
       <form
@@ -494,7 +469,10 @@ export function OrderForm() {
                           dogName: prev.dogName,
                           breed: prev.breed,
                           printStyle: prev.printStyle,
+                          gender: prev.gender,
+                          size: prev.size,
                           color: prev.color,
+                          printColor: prev.printColor,
                         });
                       } else {
                         updateLine(index, { sameAsPrevious: false });
@@ -502,13 +480,13 @@ export function OrderForm() {
                     }}
                     className="rounded border-fuchsia-200"
                   />
-                  Как на предыдущей футболке (кличка, порода, стиль, фото)
+                  Как на предыдущей футболке (кличка, порода, стиль, пол, размер, цвет, фото)
                 </label>
               ) : null}
 
               <div>
                 <label className={labelClass}>
-                  Фото собаки, желательно — мордочки и во весь рост
+                  Фото питомца (собака, кошка и др.) — желательно мордочку и во весь рост
                 </label>
                 {!locked ? (
                   <div className="space-y-3">
@@ -562,8 +540,8 @@ export function OrderForm() {
                       + добавить фото
                     </label>
                     <p className="text-xs leading-relaxed text-muted-foreground">
-                      На некоторых устройствах превью фото в форме не отображается — это нормально, снимки
-                      всё равно прикрепляются к заявке. При необходимости мы с вами свяжемся.
+                      На телефоне превью иногда не рисуется — это нормально: файлы всё равно уходят в
+                      заявку и на Google Диск после отправки. При необходимости мы с вами свяжемся.
                     </p>
                   </div>
                 ) : (
@@ -575,9 +553,6 @@ export function OrderForm() {
                     />
                     <p className="rounded-2xl border border-fuchsia-200 bg-fuchsia-50/60 px-4 py-3 text-sm text-muted-foreground">
                       Используем те же фото, что и в позиции {index}.
-                    </p>
-                    <p className="mt-2 text-xs text-muted-foreground">
-                      Унисекс, one size — единый комфортный оверсайз-крой.
                     </p>
                   </>
                 )}
@@ -624,8 +599,63 @@ export function OrderForm() {
                     />
                     <p className="mt-1 text-xs text-muted-foreground">
                       Необязательно, но так мы ориентируемся на типичные черты
-                      породы, если визуала мало.
+                      породы или вида, если визуала мало.
                     </p>
+                  </div>
+
+                  <div className="grid gap-5 sm:grid-cols-2">
+                    <div>
+                      <p className={labelClass}>Пол (линия футболки)</p>
+                      <div className="mt-2 flex flex-wrap gap-3">
+                        {shirtGenders.map((g) => (
+                          <label
+                            key={g.value}
+                            onClick={() => updateLine(index, { gender: g.value })}
+                            className={`flex cursor-pointer items-center gap-2 rounded-2xl border px-4 py-3 text-sm transition ${
+                              line.gender === g.value
+                                ? "border-dogood-pink bg-fuchsia-50 ring-2 ring-dogood-pink/25"
+                                : "border-fuchsia-200 bg-white hover:border-fuchsia-300"
+                            }`}
+                          >
+                            <input
+                              type="radio"
+                              name={`items[${index}][gender]`}
+                              value={g.value}
+                              checked={line.gender === g.value}
+                              onChange={() => updateLine(index, { gender: g.value })}
+                              className="sr-only"
+                            />
+                            {g.label}
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <p className={labelClass}>Размер</p>
+                      <div className="mt-2 flex flex-wrap gap-3">
+                        {shirtSizes.map((s) => (
+                          <label
+                            key={s.value}
+                            onClick={() => updateLine(index, { size: s.value })}
+                            className={`flex cursor-pointer items-center gap-2 rounded-2xl border px-4 py-3 text-sm transition ${
+                              line.size === s.value
+                                ? "border-dogood-pink bg-fuchsia-50 ring-2 ring-dogood-pink/25"
+                                : "border-fuchsia-200 bg-white hover:border-fuchsia-300"
+                            }`}
+                          >
+                            <input
+                              type="radio"
+                              name={`items[${index}][size]`}
+                              value={s.value}
+                              checked={line.size === s.value}
+                              onChange={() => updateLine(index, { size: s.value })}
+                              className="sr-only"
+                            />
+                            {s.label}
+                          </label>
+                        ))}
+                      </div>
+                    </div>
                   </div>
 
                   <div className="grid gap-5">
@@ -640,6 +670,7 @@ export function OrderForm() {
                           return (
                             <label
                               key={s.value}
+                              onClick={() => updateLine(index, { printStyle: s.value })}
                               className={`cursor-pointer rounded-2xl border bg-white p-2 transition ${
                                 selected
                                   ? "border-dogood-pink ring-2 ring-dogood-pink/30"
@@ -657,32 +688,32 @@ export function OrderForm() {
                                 className="sr-only"
                               />
                               <div className="relative mb-2 aspect-square overflow-hidden rounded-xl">
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img
+                                  src={previewSrc}
+                                  alt={s.label}
+                                  className="h-full w-full object-cover transition-transform duration-300 hover:scale-105"
+                                  onError={() => {
+                                    setPreviewAttempt((prev) => {
+                                      const current = prev[s.value] ?? 0;
+                                      const next = Math.min(current + 1, variants.length - 1);
+                                      return { ...prev, [s.value]: next };
+                                    });
+                                  }}
+                                />
                                 <button
                                   type="button"
                                   onClick={(e) => {
                                     e.preventDefault();
+                                    e.stopPropagation();
                                     updateLine(index, { printStyle: s.value });
                                     setLightboxSrc(previewSrc);
                                     setLightboxOpen(true);
                                   }}
-                                  className="relative block h-full w-full"
+                                  className="absolute bottom-1.5 right-1.5 rounded-full bg-white/90 px-2 py-1 text-[10px] font-semibold text-fuchsia-700 shadow-sm"
                                   aria-label={`Открыть ${s.label} на весь экран`}
                                 >
-                                  <Image
-                                    src={previewSrc}
-                                    alt={s.label}
-                                    fill
-                                    sizes="(max-width: 640px) 100vw, 33vw"
-                                    className="object-cover transition-transform duration-300 hover:scale-105"
-                                    unoptimized
-                                    onError={() => {
-                                      setPreviewAttempt((prev) => {
-                                        const current = prev[s.value] ?? 0;
-                                        const next = Math.min(current + 1, variants.length - 1);
-                                        return { ...prev, [s.value]: next };
-                                      });
-                                    }}
-                                  />
+                                  Увеличить
                                 </button>
                               </div>
                               <span className="block text-center text-[10px] font-semibold leading-tight text-fuchsia-700 sm:text-[11px]">
@@ -705,21 +736,79 @@ export function OrderForm() {
                     </div>
                   </div>
                   <div>
-                    <label className={labelClass}>Цвет футболки</label>
+                    <p className={labelClass}>Цвет футболки</p>
+                    <div className="mt-2 flex flex-wrap gap-3">
+                      {shirtColors.map((c) => (
+                        <label
+                          key={c.value}
+                          onClick={() => updateLine(index, { color: c.value })}
+                          className={`flex cursor-pointer items-center gap-2 rounded-2xl border px-4 py-3 text-sm transition ${
+                            line.color === c.value
+                              ? "border-dogood-pink bg-fuchsia-50 ring-2 ring-dogood-pink/25"
+                              : "border-fuchsia-200 bg-white hover:border-fuchsia-300"
+                          }`}
+                        >
+                          <input
+                            type="radio"
+                            name={`items[${index}][color]`}
+                            value={c.value}
+                            checked={line.color === c.value}
+                            onChange={() => updateLine(index, { color: c.value })}
+                            className="sr-only"
+                          />
+                          <span
+                            className={`h-4 w-4 rounded-full border-2 ${
+                              c.value === "black"
+                                ? "border-neutral-600 bg-neutral-900"
+                                : "border-fuchsia-300 bg-white"
+                            }`}
+                            aria-hidden
+                          />
+                          {c.label}
+                        </label>
+                      ))}
+                    </div>
+                    {line.printStyle === "rainy" ? (
+                      <p className="mt-2 text-xs text-muted-foreground">
+                        Для стиля «No rainy days» чаще выбирают белую футболку; на чёрной можно
+                        настроить цвет принта ниже.
+                      </p>
+                    ) : null}
+                  </div>
+                  {line.color === "black" ? (
+                    <div>
+                      <p className={labelClass}>Цвет принта на чёрной футболке</p>
+                      <div className="mt-2 flex flex-wrap gap-3">
+                        {blackShirtPrintColors.map((c) => (
+                          <label
+                            key={c.value}
+                            onClick={() => updateLine(index, { printColor: c.value })}
+                            className={`flex cursor-pointer items-center gap-2 rounded-2xl border px-4 py-3 text-sm transition ${
+                              line.printColor === c.value
+                                ? "border-dogood-pink bg-fuchsia-50 ring-2 ring-dogood-pink/25"
+                                : "border-fuchsia-200 bg-white hover:border-fuchsia-300"
+                            }`}
+                          >
+                            <input
+                              type="radio"
+                              name={`items[${index}][printColor]`}
+                              value={c.value}
+                              checked={line.printColor === c.value}
+                              onChange={() => updateLine(index, { printColor: c.value })}
+                              className="sr-only"
+                            />
+                            {c.label}
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
                     <input
                       type="hidden"
-                      name={`items[${index}][color]`}
-                      value="white"
+                      name={`items[${index}][printColor]`}
+                      value=""
                     />
-                    <p className="mt-2 rounded-2xl border border-fuchsia-200 bg-fuchsia-50/70 px-4 py-3 text-sm leading-relaxed text-muted-foreground">
-                      Сейчас доступны классические белые футболки. Скоро расширим
-                      ассортимент. Если вам нужна черная футболка, напишите нам в
-                      контакты — подумаем, что сможем сделать индивидуально.
-                    </p>
-                    <p className="mt-2 text-xs text-muted-foreground">
-                      Унисекс, one size — единый комфортный оверсайз-крой.
-                    </p>
-                  </div>
+                  )}
                 </>
               ) : (
                 <>
@@ -742,6 +831,21 @@ export function OrderForm() {
                     type="hidden"
                     name={`items[${index}][color]`}
                     value={prev!.color}
+                  />
+                  <input
+                    type="hidden"
+                    name={`items[${index}][gender]`}
+                    value={prev!.gender}
+                  />
+                  <input
+                    type="hidden"
+                    name={`items[${index}][size]`}
+                    value={prev!.size}
+                  />
+                  <input
+                    type="hidden"
+                    name={`items[${index}][printColor]`}
+                    value={prev!.printColor}
                   />
                   <input
                     type="hidden"
@@ -779,7 +883,7 @@ export function OrderForm() {
             required
             className={fieldClass}
           >
-            {shelters.map((s) => (
+            {sheltersForOrderForm.map((s) => (
               <option key={s.id} value={s.id}>
                 {s.name}
               </option>
@@ -793,43 +897,73 @@ export function OrderForm() {
           </h3>
           <div className="grid gap-5 sm:grid-cols-2">
             <div>
-              <label className={labelClass} htmlFor={`${baseId}-name`}>
-                Имя
+              <label className={labelClass} htmlFor={`${baseId}-lastname`}>
+                Фамилия (обязательно)
               </label>
               <input
-                id={`${baseId}-name`}
-                name="name"
+                id={`${baseId}-lastname`}
+                name="lastName"
                 required
+                autoComplete="family-name"
                 className={fieldClass}
-                placeholder="Как к вам обращаться"
+                placeholder="Фамилия"
               />
             </div>
             <div>
+              <label className={labelClass} htmlFor={`${baseId}-firstname`}>
+                Имя (обязательно)
+              </label>
+              <input
+                id={`${baseId}-firstname`}
+                name="firstName"
+                required
+                autoComplete="given-name"
+                className={fieldClass}
+                placeholder="Имя"
+              />
+            </div>
+          </div>
+          <div>
+            <label className={labelClass} htmlFor={`${baseId}-patronymic`}>
+              Отчество (необязательно)
+            </label>
+            <input
+              id={`${baseId}-patronymic`}
+              name="patronymic"
+              autoComplete="additional-name"
+              className={fieldClass}
+              placeholder="Отчество"
+            />
+          </div>
+          <div className="grid gap-5 sm:grid-cols-2">
+            <div>
               <label className={labelClass} htmlFor={`${baseId}-email`}>
-                Email
+                Email (обязательно)
               </label>
               <input
                 id={`${baseId}-email`}
                 name="email"
                 type="email"
                 required
+                autoComplete="email"
                 className={fieldClass}
                 placeholder="you@example.com"
               />
             </div>
-          </div>
-          <div>
-            <label className={labelClass} htmlFor={`${baseId}-phone`}>
-              Телефон
-            </label>
-            <input
-              id={`${baseId}-phone`}
-              name="phone"
-              type="tel"
-              required
-              className={fieldClass}
-              placeholder="+7 …"
-            />
+            <div>
+              <label className={labelClass} htmlFor={`${baseId}-phone`}>
+                Телефон (обязательно)
+              </label>
+              <input
+                id={`${baseId}-phone`}
+                name="phone"
+                type="tel"
+                required
+                autoComplete="tel"
+                className={fieldClass}
+                placeholder="+7 …"
+              />
+            </div>
           </div>
           <div>
             <label className={labelClass} htmlFor={`${baseId}-promo`}>
@@ -850,28 +984,16 @@ export function OrderForm() {
           </h3>
           <div className="rounded-2xl border border-fuchsia-200 bg-white/80 p-4 text-sm text-muted-foreground">
             <p>
-              <strong className="text-foreground">Стоимость доставки на сайте:</strong>{" "}
-              в форме можно рассчитать ориентировочную сумму по адресу и выбранной
-              службе. Финальная оплата доставки происходит при получении по
-              правилам перевозчика.
+              <strong className="text-foreground">Доставка по всей России</strong>. Стоимость
+              согласно тарифам курьерских служб.
             </p>
-          </div>
-          <p className="text-xs text-muted-foreground">
-            Отправка из Москвы; доставка оплачивается заказчиком, тариф
-            определяет выбранная служба.
-          </p>
-          <div>
-            <label className={labelClass} htmlFor={`${baseId}-address`}>
-              Адрес доставки
-            </label>
-            <textarea
-              id={`${baseId}-address`}
-              name="address"
-              required
-              rows={3}
-              className={fieldClass}
-              placeholder="Город, улица, дом, квартира / пункт выдачи"
-            />
+            <p className="mt-2">
+              Доставка до <strong className="text-foreground">пункта выдачи</strong> выбранной
+              службы. <strong className="text-foreground">Оплата доставки при получении</strong>.
+            </p>
+            <p className="mt-2">
+              <strong className="text-foreground">Стоимость доставки на сайте указана приблизительно.</strong>
+            </p>
           </div>
           <div>
             <label className={labelClass} htmlFor={`${baseId}-delivery`}>
@@ -890,6 +1012,19 @@ export function OrderForm() {
               ))}
             </select>
           </div>
+          <div>
+            <label className={labelClass} htmlFor={`${baseId}-address`}>
+              Адрес пункта выдачи
+            </label>
+            <textarea
+              id={`${baseId}-address`}
+              name="address"
+              required
+              rows={4}
+              className={fieldClass}
+              placeholder="Укажите адрес удобного пункта выдачи выбранной службы доставки"
+            />
+          </div>
           <div className="flex flex-wrap items-center gap-3">
             <button
               type="button"
@@ -901,17 +1036,22 @@ export function OrderForm() {
                 : "рассчитать доставку"}
             </button>
             {deliveryQuote ? (
-              <p className="text-sm text-foreground">
-                {deliveryQuote.carrierLabel}:{" "}
-                <span className="font-semibold">
-                  {deliveryQuote.priceRub.toLocaleString("ru-RU")} ₽
-                </span>{" "}
-                · {deliveryQuote.etaDays}
-              </p>
+              <div className="min-w-0 flex-1 space-y-1 text-sm text-foreground">
+                <p className="text-xs text-muted-foreground">
+                  {deliveryQuote.zoneLabel}
+                </p>
+                <p>
+                  {deliveryQuote.carrierLabel}:{" "}
+                  <span className="font-semibold">
+                    ~{deliveryQuote.priceRub.toLocaleString("ru-RU")} ₽
+                  </span>{" "}
+                  · {deliveryQuote.etaDays}
+                </p>
+              </div>
             ) : null}
             {deliveryCalcState === "error" ? (
               <p className="text-sm text-red-500">
-                Укажите адрес и службу доставки, чтобы рассчитать стоимость.
+                Укажите адрес пункта выдачи и выберите службу доставки.
               </p>
             ) : null}
           </div>
@@ -927,9 +1067,58 @@ export function OrderForm() {
               name="comment"
               rows={2}
               className={fieldClass}
-              placeholder="Пожелания по срокам или доставке"
+              placeholder="Любые пожелания по заказу"
             />
+            <p className="mt-1 text-xs text-muted-foreground">
+              Если питомец экзотичный, напишите об этом здесь — посмотрим, что можно
+              сделать.
+            </p>
           </div>
+        </div>
+
+        <div className="space-y-4 rounded-2xl border border-fuchsia-200 bg-fuchsia-50/60 p-4 text-sm text-muted-foreground">
+          <label className="flex cursor-pointer items-start gap-2 text-foreground">
+            <input
+              type="checkbox"
+              name="consentPersonalData"
+              value="yes"
+              required
+              className="mt-0.5 rounded border-fuchsia-200"
+            />
+            <span>
+              Согласен(на) на обработку персональных данных согласно{" "}
+              <Link
+                href="/legal/privacy"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline decoration-fuchsia-300 underline-offset-2 hover:text-fuchsia-700"
+              >
+                Политике обработки ПДн
+              </Link>
+              .
+            </span>
+          </label>
+          <label className="flex cursor-pointer items-start gap-2 text-foreground">
+            <input
+              type="checkbox"
+              name="consentTerms"
+              value="yes"
+              required
+              className="mt-0.5 rounded border-fuchsia-200"
+            />
+            <span>
+              Подтверждаю, что ознакомлен(а) и согласен(на) с{" "}
+              <Link
+                href="/legal/offer"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline decoration-fuchsia-300 underline-offset-2 hover:text-fuchsia-700"
+              >
+                Публичной офертой и условиями заказа
+              </Link>
+              , включая правила ухода за изделием и ограничения ответственности.
+            </span>
+          </label>
         </div>
 
         {photoError ? (
@@ -951,9 +1140,24 @@ export function OrderForm() {
           <div className="space-y-2 text-center text-sm font-medium text-neutral-700">
             <p>Спасибо за заказ!</p>
             <p className="text-muted-foreground">
-              Мы уже взялись за подготовку макета — макет и данные по оплате пришлём в течение{" "}
-              <strong className="text-foreground">1–2 дней</strong>.
+              {doneGoogleNotice ? (
+                <>
+                  Заявка принята на сайте. Макет и оплату согласуем в течение{" "}
+                  <strong className="text-foreground">1–2 дней</strong>.
+                </>
+              ) : (
+                <>
+                  Заявка отправлена в Google Таблицу; прикреплённые фото — в папку заказа на Google
+                  Диск (Apps Script). Без фото в таблице всё равно появится строка — макет и оплату
+                  согласуем в течение <strong className="text-foreground">1–2 дней</strong>.
+                </>
+              )}
             </p>
+            {doneGoogleNotice ? (
+              <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-950">
+                {doneGoogleNotice}
+              </p>
+            ) : null}
             {lastOrderId ? (
               <p className="text-xs text-muted-foreground">
                 Номер заявки:{" "}

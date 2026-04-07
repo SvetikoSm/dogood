@@ -25,7 +25,7 @@ export function Reviews() {
       <SectionHeading
         eyebrow="голоса"
         title="Отзывы"
-        description="Короткие истории клиентов — счастливые собачники, которые дарят счастье тем, кто в нём нуждается."
+        description="Короткие истории клиентов — портрет питомца на футболке и помощь приютам."
       />
       <div className="grid gap-6 lg:grid-cols-3">
         {reviews.map((r) => (

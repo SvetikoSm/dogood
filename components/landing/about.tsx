@@ -12,8 +12,8 @@ export function About() {
             Миссия
           </h2>
           <p className="mt-4 max-w-xl text-base leading-relaxed text-muted-foreground sm:text-lg">
-            Помогаем собачникам поддерживать приюты и сохранять память о своем
-            любимце в вещи, которую действительно хочется носить.
+            Помогаем владельцам питомцев поддерживать приюты и сохранять память о
+            своём любимце в вещи, которую действительно хочется носить.
           </p>
           <div className="mt-6 space-y-3 text-base leading-relaxed text-muted-foreground">
             <p>Мы делаем стильные принты, а не «футболки для дачи».</p>

@@ -14,6 +14,8 @@ type ForwardResult = { ok: true } | { ok: false; error: string };
  * Скрипт сам пишет строку в таблицу и складывает файлы в папку на Google Диске.
  * Обычную Google Form с сайта так не заполнить — вложения туда не POST'ятся.
  */
+const WEBHOOK_TIMEOUT_MS = 90_000;
+
 export async function forwardOrderToGoogleWebhook(opts: {
   webhookUrl: string;
   secret: string;
@@ -21,11 +23,14 @@ export async function forwardOrderToGoogleWebhook(opts: {
   files: GoogleWebhookFilePart[];
 }): Promise<ForwardResult> {
   const { webhookUrl, secret, order, files } = opts;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), WEBHOOK_TIMEOUT_MS);
   try {
     const res = await fetch(webhookUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ secret, order, files }),
+      signal: controller.signal,
     });
     const text = await res.text();
     if (!res.ok) {
@@ -42,6 +47,14 @@ export async function forwardOrderToGoogleWebhook(opts: {
     return { ok: true };
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
+    if (message === "The user aborted a request." || message.includes("abort")) {
+      return {
+        ok: false,
+        error: `Превышено время ожидания ответа Google (${WEBHOOK_TIMEOUT_MS / 1000} с). Попробуйте меньше фото или повторите позже.`,
+      };
+    }
     return { ok: false, error: message };
+  } finally {
+    clearTimeout(timeout);
   }
 }

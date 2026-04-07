@@ -9,13 +9,26 @@ import { GradientWave } from "@/components/ui/gradient-wave";
 export function HeroSection01() {
   return (
     <div className="relative flex min-h-[98vh] w-full items-center justify-center overflow-hidden rounded-[2rem] border border-white/50 bg-white/40 px-4 py-16 shadow-[0_30px_120px_rgba(236,72,153,0.2)] backdrop-blur-md sm:min-h-[104vh] sm:px-8 lg:min-h-[108vh]">
-      <GradientWave
-        colors={["#ffffff", "#fb7185", "#e879f9", "#a3e635", "#ffffff"]}
-        shadowPower={4}
-        darkenTop={false}
-        noiseFrequency={[0.0001, 0.0002]}
-        deform={{ incline: 0.2, noiseAmp: 100, noiseFlow: 2 }}
+      {/*
+        На телефонах WebGL-фон тяжёлый для CPU/GPU — статичный градиент. С md и выше — GradientWave.
+      */}
+      <div
+        className="pointer-events-none absolute inset-0 z-0 md:hidden"
+        aria-hidden
+        style={{
+          background:
+            "radial-gradient(100% 70% at 50% 100%, rgba(251,113,133,0.28), transparent 50%), radial-gradient(80% 50% at 80% 20%, rgba(232,121,249,0.2), transparent 45%), linear-gradient(165deg, #ffffff 0%, #fdf4ff 40%, #ecfccb 95%)",
+        }}
       />
+      <div className="pointer-events-none absolute inset-0 z-0 hidden md:block">
+        <GradientWave
+          colors={["#ffffff", "#fb7185", "#e879f9", "#a3e635", "#ffffff"]}
+          shadowPower={4}
+          darkenTop={false}
+          noiseFrequency={[0.0001, 0.0002]}
+          deform={{ incline: 0.2, noiseAmp: 100, noiseFlow: 2 }}
+        />
+      </div>
 
       <div className="relative z-10 mx-auto flex w-full max-w-5xl flex-col items-center pb-8 text-center sm:pb-[36vh] lg:pb-[40vh]">
         <div className="inline-flex items-center gap-2 rounded-full border border-white/70 bg-white/75 px-4 py-1.5 text-xs font-semibold uppercase tracking-widest text-fuchsia-700">
@@ -24,14 +37,14 @@ export function HeroSection01() {
         </div>
 
         <h1 className="pt-8 font-display text-4xl font-bold uppercase leading-[1.03] tracking-tight text-neutral-900 sm:text-6xl lg:text-7xl">
-          Твоя собака - амбассадор
+          Твой питомец — амбассадор
           <br />
           премиального streetwear бренда
         </h1>
 
         <p className="mt-6 max-w-2xl text-base leading-relaxed text-neutral-800 sm:text-xl">
-          Создаем стильные футболки с вашим хвостатым и отправляем 20% прибыли в приюты.
-          Вы сами выбираете, кому именно помочь.
+          Создаем стильные футболки с вашим хвостатым, каждая из которых - помощь
+          приютам. Вы сами выбираете, кому именно помочь.
         </p>
 
         <div className="mt-5 inline-flex items-center rounded-full border-2 border-fuchsia-500 bg-fuchsia-500/15 px-5 py-2 text-sm font-extrabold uppercase tracking-wider text-fuchsia-800 shadow-[0_0_45px_rgba(217,70,239,0.35)]">

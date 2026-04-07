@@ -5,7 +5,8 @@ import "./globals.css";
 const manrope = Manrope({
   variable: "--font-manrope",
   subsets: ["latin", "cyrillic"],
-  weight: ["400", "500", "600", "700"],
+  /* Меньше начертаний — быстрее первый рендер на мобильных сетях */
+  weight: ["400", "600", "700"],
 });
 
 const oswald = Oswald({
@@ -15,9 +16,15 @@ const oswald = Oswald({
 });
 
 export const metadata: Metadata = {
-  title: "DOGOOD — streetwear с принтом вашей собаки",
+  title: "DOGOOD — streetwear с принтом вашего питомца",
   description:
-    "Стильные футболки с вашей собакой. 20% прибыли — в приют на ваш выбор.",
+    "Стильные футболки с портретом питомца. 20% прибыли — в приют на ваш выбор.",
+};
+
+export const viewport = {
+  width: "device-width",
+  initialScale: 1,
+  themeColor: "#fdf4ff",
 };
 
 export default function RootLayout({

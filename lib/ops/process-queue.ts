@@ -133,7 +133,7 @@ export async function processNextOrderInQueue(opts?: {
   if (fileCount <= 0) {
     await updateOrderRowCells(row.rowNumber, {
       status: "FAILED",
-      last_error: "Нет фото собаки (Кол-во файлов = 0)",
+      last_error: "Нет фото питомца (Кол-во файлов = 0)",
       lock_until: "",
       lock_token: "",
     });

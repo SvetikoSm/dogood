@@ -35,7 +35,7 @@ export function CatalogFeature({ designs }: { designs: CatalogDesign[] }) {
   return (
     <Tabs.Root value={activeTab} onValueChange={setActiveTab} className="w-full">
       <Tabs.List
-        className="flex flex-col items-stretch justify-center gap-2 sm:flex-row sm:flex-wrap sm:justify-center sm:gap-3"
+        className="flex snap-x snap-mandatory gap-2 overflow-x-auto pb-1 sm:flex-row sm:flex-wrap sm:justify-center sm:gap-3 sm:overflow-visible sm:pb-0"
         aria-label="Три базовых дизайна"
       >
         {tabs.map((tab) => (
@@ -43,7 +43,7 @@ export function CatalogFeature({ designs }: { designs: CatalogDesign[] }) {
             key={tab.value}
             value={tab.value}
             className={cn(
-              "flex items-center justify-center gap-2 rounded-xl border px-4 py-3 text-left text-sm font-semibold text-muted-foreground transition-colors",
+              "flex min-w-[220px] shrink-0 snap-start items-center justify-center gap-2 rounded-xl border px-4 py-3 text-left text-sm font-semibold text-muted-foreground transition-colors sm:min-w-0 sm:shrink",
               "border-fuchsia-200 bg-white/70 hover:bg-white",
               "data-[state=active]:border-dogood-pink/50 data-[state=active]:bg-fuchsia-50 data-[state=active]:text-foreground",
             )}
@@ -108,8 +108,10 @@ export function CatalogFeature({ designs }: { designs: CatalogDesign[] }) {
                   ))}
                 </ul>
                 <p className="text-xs text-muted-foreground">
-                  Фото выше — примеры ткани и кроя. Свои снимки для принта загружаете
-                  в форме заказа: 2–3 кадра (морда + рост).
+                  Фото выше — примеры ткани и кроя. Кастомизируем как под собак, так и
+                  под кошек. Если питомец более экзотичный, напишите в комментарии к
+                  заказу — посмотрим, что можно сделать. Снимки для принта загружаете в
+                  форме: 2–3 кадра (портрет + рост).
                 </p>
                 <Button asChild size="lg" className="mt-2 w-fit gap-2 bg-primary">
                   <a href={`/?style=${tab.value}#order`}>Оформить в этом стиле</a>

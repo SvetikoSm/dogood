@@ -45,6 +45,8 @@ export function ProductImageCarousel({
   const [index, setIndex] = useState(0);
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const touchStartX = useRef<number | null>(null);
+  const touchStartY = useRef<number | null>(null);
+  const suppressTapOpen = useRef(false);
 
   const n = slides.length;
   const go = (dir: -1 | 1) => {
@@ -53,12 +55,23 @@ export function ProductImageCarousel({
 
   const onTouchStart = (e: React.TouchEvent) => {
     touchStartX.current = e.touches[0].clientX;
+    touchStartY.current = e.touches[0].clientY;
+    suppressTapOpen.current = false;
+  };
+
+  const onTouchMove = (e: React.TouchEvent) => {
+    if (touchStartX.current === null || touchStartY.current === null) return;
+    const dx = Math.abs(e.touches[0].clientX - touchStartX.current);
+    const dy = Math.abs(e.touches[0].clientY - touchStartY.current);
+    // Горизонтальный жест считаем свайпом; подавляем "tap-to-open".
+    if (dx > 10 && dx > dy) suppressTapOpen.current = true;
   };
 
   const onTouchEnd = (e: React.TouchEvent) => {
     if (touchStartX.current === null) return;
     const dx = e.changedTouches[0].clientX - touchStartX.current;
     touchStartX.current = null;
+    touchStartY.current = null;
     if (dx > 48) go(-1);
     else if (dx < -48) go(1);
   };
@@ -70,6 +83,7 @@ export function ProductImageCarousel({
       <div
         className="relative aspect-[4/5] w-full overflow-hidden rounded-xl bg-white touch-pan-y"
         onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
         role="region"
         aria-roledescription="карусель"
@@ -91,6 +105,10 @@ export function ProductImageCarousel({
               <button
                 type="button"
                 onClick={() => {
+                  if (suppressTapOpen.current) {
+                    suppressTapOpen.current = false;
+                    return;
+                  }
                   setIndex(idx);
                   setLightboxOpen(true);
                 }}

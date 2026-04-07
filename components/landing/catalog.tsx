@@ -22,8 +22,12 @@ export default async function Catalog() {
           Три базовых дизайна
         </h2>
         <p className="mt-4 text-base leading-relaxed text-muted-foreground sm:text-lg">
-          Выберите стиль — в дизайне мы заменим графику на портрет вашей собаки и
-          ее кличку.
+          Выберите стиль — в дизайне мы заменим графику на портрет вашего питомца и
+          кличку.
+        </p>
+        <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+          Кастомизируем как под собак, так и под кошек. Если питомец более экзотичный,
+          напишите в комментарии к заказу — посмотрим, что можно сделать.
         </p>
       </div>
       <CatalogFeature designs={designs} />

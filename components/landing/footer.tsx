@@ -10,7 +10,7 @@ export function Footer() {
             DOGOOD
           </p>
           <p className="mt-3 max-w-sm text-sm leading-relaxed text-neutral-600">
-            Футболки с портретом вашей собаки и прозрачной поддержкой приютов.
+            Футболки с портретом питомца и прозрачной поддержкой приютов.
           </p>
         </div>
         <div className="grid gap-8 sm:grid-cols-2 lg:gap-16">

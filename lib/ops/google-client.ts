@@ -47,3 +47,12 @@ export function getSpreadsheetId(): string | undefined {
 export function getSheetTabName(): string {
   return process.env.GOOGLE_SHEETS_TAB_NAME?.trim() || "Лист1";
 }
+
+export function getLogisticsSheetTabName(): string {
+  return process.env.GOOGLE_LOGISTICS_SHEET_TAB_NAME?.trim() || "Логистика";
+}
+
+export function getRevolutionPrintFolderUrl(): string | undefined {
+  const u = process.env.GOOGLE_REVOLUTION_PRINT_FOLDER_URL?.trim();
+  return u || undefined;
+}

@@ -1,6 +1,11 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { deliveryMethods, printStyles, shelters } from "@/lib/landing-data";
+import {
+  deliveryMethods,
+  printStyles,
+  shelters,
+  sheltersForOrderForm,
+} from "@/lib/landing-data";
 import { generatePublicOrderId } from "@/lib/order-id";
 import type { GoogleWebhookFilePart } from "@/lib/forward-order-to-google";
 import type { TrackedOrder, TrackedOrderLine } from "@/lib/order-tracking-types";
@@ -161,7 +166,10 @@ export async function saveOrderSubmission(
       printStyleLabel: printStyleLabel(
         first(stringFields.get(`items[${lineIndex}][printStyle]`)) ?? "",
       ),
+      gender: first(stringFields.get(`items[${lineIndex}][gender]`)) ?? "",
+      size: first(stringFields.get(`items[${lineIndex}][size]`)) ?? "",
       color: first(stringFields.get(`items[${lineIndex}][color]`)) ?? "white",
+      printColor: first(stringFields.get(`items[${lineIndex}][printColor]`)) ?? "",
       sameAsPrevious,
       mirrorPhotosFromLine: Number.isFinite(mirrorPhotosFromLine)
         ? mirrorPhotosFromLine
@@ -171,7 +179,17 @@ export async function saveOrderSubmission(
   });
 
   const shelterId = first(stringFields.get("shelterId")) ?? "";
-  const shelter = shelters.find((s) => s.id === shelterId);
+  const shelter =
+    sheltersForOrderForm.find((s) => s.id === shelterId) ??
+    shelters.find((s) => s.id === shelterId);
+
+  const lastName = first(stringFields.get("lastName"))?.trim() ?? "";
+  const firstName = first(stringFields.get("firstName"))?.trim() ?? "";
+  const patronymic = first(stringFields.get("patronymic"))?.trim() ?? "";
+  const legacyFullName = first(stringFields.get("name"))?.trim() ?? "";
+  const customerFullName =
+    [lastName, firstName, patronymic].filter(Boolean).join(" ").trim() ||
+    legacyFullName;
 
   const order: TrackedOrder = {
     schemaVersion: 1,
@@ -180,10 +198,14 @@ export async function saveOrderSubmission(
     createdAt: now,
     updatedAt: now,
     customer: {
-      name: first(stringFields.get("name")) ?? "",
+      name: customerFullName,
       email: first(stringFields.get("email")) ?? "",
       phone: first(stringFields.get("phone")) ?? "",
       promoCode: first(stringFields.get("promoCode")) || null,
+    },
+    legal: {
+      consentPersonalData: first(stringFields.get("consentPersonalData")) === "yes",
+      consentTerms: first(stringFields.get("consentTerms")) === "yes",
     },
     delivery: {
       address: first(stringFields.get("address")) ?? "",
