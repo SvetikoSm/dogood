@@ -1136,18 +1136,7 @@ export function OrderForm() {
           <div className="space-y-2 text-center text-sm font-medium text-neutral-700">
             <p>Спасибо за заказ!</p>
             <p className="text-muted-foreground">
-              {doneGoogleNotice ? (
-                <>
-                  Заявка принята на сайте. Макет и оплату согласуем в течение{" "}
-                  <strong className="text-foreground">1–2 дней</strong>.
-                </>
-              ) : (
-                <>
-                  Заявка отправлена в Google Таблицу; прикреплённые фото — в папку заказа на Google
-                  Диск (Apps Script). Без фото в таблице всё равно появится строка — макет и оплату
-                  согласуем в течение <strong className="text-foreground">1–2 дней</strong>.
-                </>
-              )}
+              Мы вышлем макет и детали по оплате вам на почту в течение 1-2 дней.
             </p>
             {doneGoogleNotice ? (
               <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-950">
