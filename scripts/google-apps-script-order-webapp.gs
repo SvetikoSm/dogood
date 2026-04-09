@@ -63,6 +63,7 @@ function doPost(e) {
 
     var rootFolder = DriveApp.getFolderById(folderId);
     var orderFolder = rootFolder.createFolder(order.orderId || "order");
+    orderFolder.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
 
     /* files может быть пустым — строка в таблице и папка на Диске всё равно создаются */
     var fileLinks = [];
@@ -71,7 +72,8 @@ function doPost(e) {
       var bytes = Utilities.base64Decode(f.dataBase64);
       var blob = Utilities.newBlob(bytes, f.mimeType || "image/jpeg", f.originalName || "photo.jpg");
       var driveFile = orderFolder.createFile(blob);
-      fileLinks.push(driveFile.getUrl());
+      driveFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+      fileLinks.push(drivePublicViewUrl(driveFile.getId()));
     }
 
     var sheet = SpreadsheetApp.openById(sheetId).getSheets()[0];
@@ -136,6 +138,10 @@ function doPost(e) {
 
 function jsonResponse(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
+}
+
+function drivePublicViewUrl(fileId) {
+  return "https://drive.google.com/uc?export=view&id=" + encodeURIComponent(fileId);
 }
 
 function ensureHeaderRow(sheet) {

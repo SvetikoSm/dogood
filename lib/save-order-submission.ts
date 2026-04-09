@@ -19,6 +19,10 @@ export type SavedOrderResult = {
   savedToDisk: boolean;
   submissionDir?: string;
   error?: string;
+  diagnostics?: {
+    pendingFilesCount: number;
+    pendingTotalBytes: number;
+  };
   /** Заполняется при includeWebhookPayload; не зависит от успеха записи на диск (важно для Netlify) */
   googleWebhookPayload?: {
     order: TrackedOrder;
@@ -80,22 +84,30 @@ export async function saveOrderSubmission(
       else stringFields.set(key, [value]);
       continue;
     }
-    /* В типах только File | string, но в Node multipart иногда приходит Blob без File */
-    const blob = value as unknown as Blob;
-    if (blob.size > 0) {
-      const file =
-        blob instanceof File
-          ? blob
-          : new File([blob], "photo.jpg", {
-              type: blob.type || "application/octet-stream",
-            });
-      pendingFiles.push({ key, file });
+    /* В типах только File | string, но в рантайме может прилететь Blob-подобный объект. */
+    const blobLike = value as unknown as {
+      size?: number;
+      type?: string;
+      name?: string;
+    };
+    if (typeof blobLike.size === "number" && blobLike.size <= 0) {
+      continue;
     }
+    const blob = value as unknown as Blob;
+    const file =
+      value instanceof File
+        ? value
+        : new File([blob], blobLike.name || "photo.jpg", {
+            type: blobLike.type || "application/octet-stream",
+          });
+    pendingFiles.push({ key, file });
   }
 
   const fileBuffers: FileBufferEntry[] = [];
+  let pendingTotalBytes = 0;
   for (const { key, file } of pendingFiles) {
     const buf = Buffer.from(await file.arrayBuffer());
+    pendingTotalBytes += buf.byteLength;
     fileBuffers.push({ key, file, buf });
   }
 
@@ -242,6 +254,10 @@ export async function saveOrderSubmission(
     savedToDisk,
     submissionDir: savedToDisk ? submissionDir : undefined,
     ...(diskError ? { error: diskError } : {}),
+    diagnostics: {
+      pendingFilesCount: pendingFiles.length,
+      pendingTotalBytes,
+    },
     ...(options?.includeWebhookPayload
       ? { googleWebhookPayload: { order, files: googleFiles } }
       : {}),

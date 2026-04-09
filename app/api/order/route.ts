@@ -41,6 +41,9 @@ export async function POST(request: Request) {
   const saved = await saveOrderSubmission(formData, {
     includeWebhookPayload,
   });
+  const filesPreparedForGoogle = saved.googleWebhookPayload?.files.length ?? 0;
+  const pendingFilesCount = saved.diagnostics?.pendingFilesCount ?? 0;
+  const pendingTotalBytes = saved.diagnostics?.pendingTotalBytes ?? 0;
 
   let googleWebhookStatus: "skipped" | "ok" | "error" = "skipped";
   let googleWebhookError: string | undefined;
@@ -66,6 +69,9 @@ export async function POST(request: Request) {
     saved.orderId,
     saved.savedToDisk ? "saved" : "not saved",
     googleWebhookStatus,
+    `pendingFiles:${pendingFilesCount}`,
+    `pendingBytes:${pendingTotalBytes}`,
+    `googleFiles:${filesPreparedForGoogle}`,
     summary,
   );
 
@@ -75,6 +81,9 @@ export async function POST(request: Request) {
     savedToDisk: saved.savedToDisk,
     submissionDir: saved.submissionDir,
     googleWebhook: googleWebhookStatus,
+    pendingFilesCount,
+    pendingTotalBytes,
+    filesPreparedForGoogle,
     ...(googleWebhookError ? { googleWebhookError } : {}),
     ...(saved.error ? { warning: "disk_save_failed", detail: saved.error } : {}),
     received: Object.keys(summary),
