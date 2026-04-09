@@ -329,10 +329,13 @@ export function OrderForm() {
     const formData = new FormData(form);
 
     for (let i = 0; i < lines.length; i++) {
+      const prepared = compressedByLine[i] ?? [];
+      if (!prepared.length) {
+        // Фолбэк: если клиентский стейт фото не обновился, оставляем нативные файлы из формы.
+        continue;
+      }
       formData.delete(`items[${i}][photos]`);
-    }
-    for (let i = 0; i < lines.length; i++) {
-      for (const file of compressedByLine[i] ?? []) {
+      for (const file of prepared) {
         formData.append(`items[${i}][photos]`, file);
       }
     }
@@ -509,6 +512,7 @@ export function OrderForm() {
                     </div>
                     <input
                       id={`photo-pick-${line.id}`}
+                      name={`items[${index}][photos]`}
                       type="file"
                       accept="image/*"
                       multiple
@@ -529,7 +533,6 @@ export function OrderForm() {
                           next[index] = merged;
                           return next;
                         });
-                        ev.target.value = "";
                       }}
                     />
                     {/* label + htmlFor: на iOS Safari программный input.click() часто блокируется */}
@@ -539,6 +542,9 @@ export function OrderForm() {
                     >
                       + добавить фото
                     </label>
+                    <p className="text-xs text-muted-foreground">
+                      Выбрано фото: {(linePhotos[index] ?? []).length}
+                    </p>
                     <p className="text-xs leading-relaxed text-muted-foreground">
                       На телефоне превью иногда не рисуется — это нормально: файлы всё равно уходят в
                       заявку и на Google Диск после отправки. При необходимости мы с вами свяжемся.
