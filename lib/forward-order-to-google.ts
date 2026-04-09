@@ -8,6 +8,7 @@ export type GoogleWebhookFilePart = {
 };
 
 type ForwardResult = { ok: true } | { ok: false; error: string };
+type WebhookJson = { ok?: boolean; error?: string; fileCount?: number };
 
 /**
  * Отправляет JSON в развёрнутый Google Apps Script (веб-приложение).
@@ -36,13 +37,26 @@ export async function forwardOrderToGoogleWebhook(opts: {
     if (!res.ok) {
       return { ok: false, error: `HTTP ${res.status}: ${text.slice(0, 500)}` };
     }
+    let parsed: WebhookJson | null = null;
     try {
-      const json = JSON.parse(text) as { ok?: boolean; error?: string };
-      if (json.ok === false) {
-        return { ok: false, error: json.error ?? "webhook rejected" };
+      parsed = JSON.parse(text) as WebhookJson;
+      if (parsed.ok === false) {
+        return { ok: false, error: parsed.error ?? "webhook rejected" };
       }
     } catch {
       /* пустой или не-JSON ответ — считаем успехом при 2xx */
+    }
+    if (
+      files.length > 0 &&
+      parsed &&
+      typeof parsed.fileCount === "number" &&
+      parsed.fileCount === 0
+    ) {
+      return {
+        ok: false,
+        error:
+          "Google webhook вернул fileCount=0 при отправленных файлах. Проверьте deployment Apps Script и WEBHOOK URL.",
+      };
     }
     return { ok: true };
   } catch (e) {
