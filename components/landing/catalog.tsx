@@ -26,8 +26,8 @@ export default async function Catalog() {
           кличку.
         </p>
         <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-          Кастомизируем как под собак, так и под кошек. Если питомец более экзотичный,
-          напишите в комментарии к заказу — посмотрим, что можно сделать.
+          Отправляете нам фото -> мы высылаем макет футболки -> оплата только если
+          понравится макет
         </p>
       </div>
       <CatalogFeature designs={designs} />

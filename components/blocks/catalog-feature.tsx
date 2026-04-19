@@ -108,10 +108,8 @@ export function CatalogFeature({ designs }: { designs: CatalogDesign[] }) {
                   ))}
                 </ul>
                 <p className="text-xs text-muted-foreground">
-                  Фото выше — примеры ткани и кроя. Кастомизируем как под собак, так и
-                  под кошек. Если питомец более экзотичный, напишите в комментарии к
-                  заказу — посмотрим, что можно сделать. Снимки для принта загружаете в
-                  форме: 2–3 кадра (портрет + рост).
+                  Отправляете нам фото -&gt; мы высылаем макет футболки -&gt; оплата только
+                  если понравится макет
                 </p>
                 <Button asChild size="lg" className="mt-2 w-fit gap-2 bg-primary">
                   <a href={`/?style=${tab.value}#order`}>Оформить в этом стиле</a>
