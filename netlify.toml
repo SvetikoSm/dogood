@@ -11,3 +11,4 @@
   package = "@netlify/plugin-nextjs"
 
 # Заявки с фото: лимит тела запроса к функции на Netlify ~6 MB — при 413 уменьшите фото.
+# Российский VPS/Docker: см. `Dockerfile`, `deploy/nginx-dogood.conf.example`, `ecosystem.config.cjs`.

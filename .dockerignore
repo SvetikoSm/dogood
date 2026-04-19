@@ -1,0 +1,12 @@
+node_modules
+.next
+.git
+.gitignore
+*.md
+.env
+.env.*
+!.env.example
+data/order-submissions/*
+!data/order-submissions/.gitkeep
+npm-debug.log*
+.DS_Store
