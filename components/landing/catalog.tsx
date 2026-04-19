@@ -26,7 +26,7 @@ export default async function Catalog() {
           кличку.
         </p>
         <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-          Отправляете нам фото -> мы высылаем макет футболки -> оплата только если
+          Отправляете нам фото -&gt; мы высылаем макет футболки -&gt; оплата только если
           понравится макет
         </p>
       </div>
