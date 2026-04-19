@@ -31,7 +31,7 @@ function getQuote(address: string, method: DeliveryMethod) {
   };
   return {
     priceRub: matrix[method][zone],
-    etaDays: "2-4 дней",
+    etaDays: method === "cdek" ? "1-2 дня" : "2-4 дней",
     carrierLabel: carrierLabels[method],
     zoneLabel: "",
     note:

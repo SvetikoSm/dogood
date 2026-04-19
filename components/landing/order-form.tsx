@@ -134,6 +134,8 @@ function getStyleFromUrl(): string | null {
 
 export function OrderForm() {
   const SHIRT_PRICE_RUB = 3999;
+  const NETWORK_HINT_THRESHOLD = 2;
+  const FETCH_TIMEOUT_MS = 12000;
   const baseId = useId();
   const [status, setStatus] = useState<"idle" | "sending" | "done" | "error">(
     "idle",
@@ -159,6 +161,32 @@ export function OrderForm() {
   const [lastOrderId, setLastOrderId] = useState<string | null>(null);
   /** Предупреждение после успешного HTTP, если Google-вебхук не настроен (dev) */
   const [doneGoogleNotice, setDoneGoogleNotice] = useState<string | null>(null);
+  const [networkIssueCount, setNetworkIssueCount] = useState(0);
+  const [networkHintClosed, setNetworkHintClosed] = useState(false);
+  const showNetworkHint =
+    networkIssueCount >= NETWORK_HINT_THRESHOLD && !networkHintClosed;
+
+  function noteNetworkIssue() {
+    setNetworkIssueCount((n) => n + 1);
+  }
+
+  function clearNetworkIssue() {
+    setNetworkIssueCount(0);
+    setNetworkHintClosed(false);
+  }
+
+  async function fetchWithTimeout(
+    input: RequestInfo | URL,
+    init?: RequestInit,
+  ): Promise<Response> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+    try {
+      return await fetch(input, { ...init, signal: controller.signal });
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
 
   useEffect(() => {
     const styleFromUrl = getStyleFromUrl();
@@ -251,7 +279,7 @@ export function OrderForm() {
     setDeliveryQuote(null);
 
     try {
-      const res = await fetch("/api/delivery-quote", {
+      const res = await fetchWithTimeout("/api/delivery-quote", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ address, deliveryMethod }),
@@ -269,9 +297,11 @@ export function OrderForm() {
       };
       setDeliveryQuote(data.quote);
       setDeliveryCalcState("idle");
+      clearNetworkIssue();
     } catch {
       setDeliveryCalcState("error");
       setDeliveryQuote(null);
+      noteNetworkIssue();
     }
   }
 
@@ -341,7 +371,7 @@ export function OrderForm() {
     }
 
     try {
-      const res = await fetch("/api/order", {
+      const res = await fetchWithTimeout("/api/order", {
         method: "POST",
         body: formData,
       });
@@ -394,6 +424,7 @@ export function OrderForm() {
         setDoneGoogleNotice(null);
       }
       setStatus("done");
+      clearNetworkIssue();
       form.reset();
       setLines([createLine()]);
       setLinePhotos([[]]);
@@ -401,6 +432,7 @@ export function OrderForm() {
       setStatus("error");
       setSubmitError("Сеть или сервер недоступны. Попробуйте позже.");
       setLastOrderId(null);
+      noteNetworkIssue();
     }
   }
 
@@ -420,6 +452,25 @@ export function OrderForm() {
         onSubmit={handleSubmit}
         className="mx-auto mt-8 max-w-2xl space-y-8 rounded-3xl border border-fuchsia-200 bg-white/85 p-6 shadow-[0_20px_60px_rgba(168,85,247,0.14)] sm:p-8"
       >
+        {showNetworkHint ? (
+          <div
+            className="flex items-start justify-between gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950"
+            role="status"
+          >
+            <p className="leading-relaxed">
+              Похоже, соединение нестабильно. Если у вас включён VPN, попробуйте выключить его.
+            </p>
+            <button
+              type="button"
+              onClick={() => setNetworkHintClosed(true)}
+              className="shrink-0 rounded-full border border-amber-300 bg-white px-2 py-0.5 text-xs font-semibold text-amber-900 transition-colors hover:bg-amber-100"
+              aria-label="Закрыть предупреждение о соединении"
+            >
+              Закрыть
+            </button>
+          </div>
+        ) : null}
+
         <div>
           <h3 className="font-display text-lg font-bold uppercase tracking-wide text-foreground">
             Заказ футболки
@@ -546,8 +597,7 @@ export function OrderForm() {
                       Выбрано фото: {(linePhotos[index] ?? []).length}
                     </p>
                     <p className="text-xs leading-relaxed text-muted-foreground">
-                      На телефоне превью иногда не рисуется — это нормально: файлы всё равно уходят в
-                      заявку и на Google Диск после отправки. При необходимости мы с вами свяжемся.
+                      Превью картинки иногда не отображается, но мы все равно увидим ваши файлы
                     </p>
                   </div>
                 ) : (
