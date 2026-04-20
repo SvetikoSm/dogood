@@ -371,7 +371,7 @@ export function OrderForm() {
     }
 
     try {
-      const res = await fetchWithTimeout("/api/order", {
+      const res = await fetch("/api/order", {
         method: "POST",
         body: formData,
       });
