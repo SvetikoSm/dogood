@@ -220,17 +220,24 @@ export function OrderForm() {
 
   const previewCandidatesByStyle = printStyles.reduce<Record<string, string[]>>(
     (acc, style) => {
-      acc[style.value] = [
-        `/order-form-styles/${style.value}/2.jpg`,
-        `/order-form-styles/${style.value}/2.jpeg`,
-        `/order-form-styles/${style.value}/2.png`,
-        `/order-form-styles/${style.value}/2.webp`,
-        `/products/${style.value}/2.jpg`,
-        `/products/${style.value}/2.jpeg`,
-        `/products/${style.value}/2.png`,
-        `/products/${style.value}/2.webp`,
-        fallbackPreviewByStyle[style.value] ?? "",
-      ].filter(Boolean);
+      // Сначала показываем проверенные источники (витрина), чтобы избежать цепочек 404.
+      // Локальные пути оставляем как резерв для будущих ассетов.
+      acc[style.value] = Array.from(
+        new Set(
+          [
+            fallbackPreviewByStyle[style.value] ?? "",
+            `/products/${style.value}/main.webp`,
+            `/products/${style.value}/main.png`,
+            `/products/${style.value}/3.webp`,
+            `/products/${style.value}/3.jpg`,
+            `/products/${style.value}/4.webp`,
+            `/products/${style.value}/4.jpg`,
+            `/order-form-styles/${style.value}/2.webp`,
+            `/order-form-styles/${style.value}/2.jpg`,
+            `/order-form-styles/${style.value}/2.png`,
+          ].filter(Boolean),
+        ),
+      );
       return acc;
     },
     {},
@@ -379,7 +386,7 @@ export function OrderForm() {
       let data: {
         orderId?: string;
         detail?: string;
-        googleWebhook?: "skipped" | "ok" | "error";
+        googleWebhook?: "skipped" | "pending" | "ok" | "error";
         googleWebhookError?: string;
       } = {};
       try {
@@ -419,6 +426,10 @@ export function OrderForm() {
       if (data.googleWebhook === "skipped") {
         setDoneGoogleNotice(
           "Отправка в Google Таблицу и Диск на сервере не настроена — заявка принята только на стороне сайта. Сохраните номер и напишите нам.",
+        );
+      } else if (data.googleWebhook === "pending") {
+        setDoneGoogleNotice(
+          "Заявка принята. Данные в Google Таблицу и Диск догружаются в фоне — это может занять до 1-2 минут.",
         );
       } else {
         setDoneGoogleNotice(null);
@@ -1040,14 +1051,32 @@ export function OrderForm() {
           <div className="rounded-2xl border border-fuchsia-200 bg-white/80 p-4 text-sm text-muted-foreground">
             <p>
               <strong className="text-foreground">Доставка по всей России</strong>. Стоимость
-              согласно тарифам курьерских служб.
+              рассчитывается после выбора службы и адреса пункта выдачи.
             </p>
             <p className="mt-2">
               Доставка до <strong className="text-foreground">пункта выдачи</strong> выбранной
               службы. <strong className="text-foreground">Оплата доставки при получении</strong>.
             </p>
             <p className="mt-2">
-              <strong className="text-foreground">Стоимость доставки на сайте указана приблизительно.</strong>
+              Адреса пунктов выдачи:{" "}
+              <Link
+                href="https://dostavka.yandex.ru/pickup-point/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline decoration-fuchsia-300 underline-offset-2 hover:text-fuchsia-700"
+              >
+                Яндекс Доставка
+              </Link>
+              {" · "}
+              <Link
+                href="https://www.cdek.ru/ru/offices/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline decoration-fuchsia-300 underline-offset-2 hover:text-fuchsia-700"
+              >
+                СДЭК
+              </Link>
+              .
             </p>
           </div>
           <div>
