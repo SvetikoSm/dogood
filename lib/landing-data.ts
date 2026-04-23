@@ -183,9 +183,9 @@ export const blackShirtPrintColors = [
   { value: "blue", label: "Голубой" },
 ] as const;
 
-/** Доставка по РФ: пункты выдачи WB и СДЭК. */
+/** Доставка по РФ: пункты выдачи Яндекс Доставки и СДЭК. */
 export const deliveryMethods = [
-  { value: "wb", label: "Wildberries (пункт выдачи)" },
+  { value: "yandex", label: "Яндекс Доставка (пункт выдачи)" },
   { value: "cdek", label: "СДЭК (пункт выдачи)" },
 ] as const;
 

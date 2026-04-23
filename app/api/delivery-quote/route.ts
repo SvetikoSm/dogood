@@ -1,13 +1,13 @@
 import { NextResponse } from "next/server";
 
-type DeliveryMethod = "wb" | "cdek";
+type DeliveryMethod = "yandex" | "cdek";
 
 const carrierLabels: Record<DeliveryMethod, string> = {
-  wb: "Wildberries",
+  yandex: "Яндекс Доставка",
   cdek: "СДЭК",
 };
 
-/** Москва — базовый (более низкий) ориентир; регионы и «дальний» — дороже. */
+/** Москва — базовый ориентир; регионы и «дальний» — дороже. */
 function detectZone(address: string): "moscow" | "regional" | "far" {
   const a = address.toLowerCase();
   if (a.includes("москва") || a.includes("moscow")) return "moscow";
@@ -26,16 +26,16 @@ function detectZone(address: string): "moscow" | "regional" | "far" {
 function getQuote(address: string, method: DeliveryMethod) {
   const zone = detectZone(address);
   const matrix: Record<DeliveryMethod, Record<typeof zone, number>> = {
-    wb: { moscow: 180, regional: 290, far: 490 },
-    cdek: { moscow: 260, regional: 420, far: 690 },
+    yandex: { moscow: 250, regional: 350, far: 350 },
+    cdek: { moscow: 400, regional: 400, far: 400 },
   };
   return {
     priceRub: matrix[method][zone],
-    etaDays: method === "cdek" ? "1-2 дня" : "2-4 дней",
+    etaDays: method === "cdek" ? "2-4 дня" : "1-3 дня",
     carrierLabel: carrierLabels[method],
     zoneLabel: "",
     note:
-      "Стоимость доставки на сайте указана приблизительно. Точный тариф зависит от выбранной службы (Wildberries/СДЭК) и оплачивается получателем при получении.",
+      "Стоимость доставки на сайте указана приблизительно. Для Яндекс Доставки ориентир: 250 ₽ по Москве и 350 ₽ за пределами Москвы. Точный тариф зависит от выбранной службы (Яндекс Доставка/СДЭК) и оплачивается получателем при получении.",
   };
 }
 
@@ -50,7 +50,7 @@ export async function POST(request: Request) {
   if (
     !address ||
     !method ||
-    (method !== "cdek" && method !== "wb")
+    (method !== "cdek" && method !== "yandex")
   ) {
     return NextResponse.json({ ok: false, error: "invalid_input" }, { status: 400 });
   }
