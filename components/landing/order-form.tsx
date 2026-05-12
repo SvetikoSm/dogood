@@ -1,14 +1,13 @@
 "use client";
 
 import type { FormEvent } from "react";
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { DogoodButton } from "@/components/ui/dogood-button";
 import { ImageLightbox } from "@/components/ui/image-lightbox";
 import { Section, SectionHeading } from "@/components/ui/section";
 import {
   blackShirtPrintColors,
-  catalogDesignTemplates,
   deliveryMethods,
   printStyles,
   shirtColors,
@@ -16,6 +15,7 @@ import {
   shirtSizes,
   sheltersForOrderForm,
 } from "@/lib/landing-data";
+import { getOrderFormPreviewCandidatesByStyle } from "@/lib/order-form-style-previews";
 import { Image as ImageIcon } from "lucide-react";
 import {
   compressImageForUpload,
@@ -211,36 +211,9 @@ export function OrderForm() {
     });
   }, [lines.length]);
 
-  const fallbackPreviewByStyle = catalogDesignTemplates.reduce<
-    Record<string, string>
-  >((acc, item) => {
-    acc[item.id] = item.gallery[0] ?? item.imageMain;
-    return acc;
-  }, {});
-
-  const previewCandidatesByStyle = printStyles.reduce<Record<string, string[]>>(
-    (acc, style) => {
-      // Сначала показываем проверенные источники (витрина), чтобы избежать цепочек 404.
-      // Локальные пути оставляем как резерв для будущих ассетов.
-      acc[style.value] = Array.from(
-        new Set(
-          [
-            `/order-form-styles/${style.value}/2.webp`,
-            `/order-form-styles/${style.value}/2.jpg`,
-            `/order-form-styles/${style.value}/2.png`,
-            `/products/${style.value}/main.webp`,
-            `/products/${style.value}/main.png`,
-            `/products/${style.value}/3.webp`,
-            `/products/${style.value}/3.jpg`,
-            `/products/${style.value}/4.webp`,
-            `/products/${style.value}/4.jpg`,
-            fallbackPreviewByStyle[style.value] ?? "",
-          ].filter(Boolean),
-        ),
-      );
-      return acc;
-    },
-    {},
+  const previewCandidatesByStyle = useMemo(
+    () => getOrderFormPreviewCandidatesByStyle(),
+    [],
   );
 
   const updateLine = useCallback(
@@ -757,14 +730,24 @@ export function OrderForm() {
                               <div className="relative mb-2 aspect-square overflow-hidden rounded-xl">
                                 {/* eslint-disable-next-line @next/next/no-img-element */}
                                 <img
+                                  key={`${s.value}-${idx}`}
                                   src={previewSrc}
                                   alt={s.label}
                                   className="h-full w-full object-cover transition-transform duration-300 hover:scale-105"
+                                  referrerPolicy={
+                                    previewSrc.startsWith("http")
+                                      ? "no-referrer"
+                                      : undefined
+                                  }
                                   onError={() => {
                                     setPreviewAttempt((prev) => {
                                       const current = prev[s.value] ?? 0;
-                                      const next = Math.min(current + 1, variants.length - 1);
-                                      return { ...prev, [s.value]: next };
+                                      const variantsLen =
+                                        previewCandidatesByStyle[s.value]?.length ?? 0;
+                                      if (current + 1 >= variantsLen) {
+                                        return prev;
+                                      }
+                                      return { ...prev, [s.value]: current + 1 };
                                     });
                                   }}
                                 />
