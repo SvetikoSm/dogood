@@ -3,7 +3,7 @@ import type { NextConfig } from "next";
 const onNetlify = process.env.NETLIFY === "true";
 
 const nextConfig: NextConfig = {
-  /** VPS/Docker: см. `Dockerfile`. На Netlify оставляем вывод плагину (`NETLIFY=true` при сборке). */
+  /** VPS/Docker (Timeweb и т.п.): см. `Dockerfile`. Для Netlify при сборке задайте `NETLIFY=true` — тогда без `standalone` (вывод плагину). */
   ...(!onNetlify ? { output: "standalone" as const } : {}),
   images: {
     remotePatterns: [

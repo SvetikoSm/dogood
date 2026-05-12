@@ -23,11 +23,6 @@ export function About() {
             <p>
               Все переводы фиксируем и публикуем прозрачную агрегированную отчётность.
             </p>
-            <p className="rounded-2xl border border-fuchsia-200 bg-white/80 p-4 text-foreground">
-              <span className="font-semibold text-dogood-pink">Важно:</span>{" "}
-              вклад клиента всегда привязан к конкретному приюту, а не к
-              абстрактному «фонду».
-            </p>
           </div>
         </div>
         <div className="relative overflow-hidden rounded-3xl border border-fuchsia-200 bg-gradient-to-br from-dogood-pink-soft via-white to-dogood-yellow-soft p-10 shadow-[0_20px_50px_rgba(244,114,182,0.15)]">

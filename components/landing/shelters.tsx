@@ -41,8 +41,8 @@ export function Shelters() {
   return (
     <Section id="shelters" surfaceClassName="bg-transparent">
       <SectionHeading
-        eyebrow="приюты"
-        title="Приюты"
+        eyebrow="партнёры"
+        title="Приюты и фонды"
         description="Организации, которым мы направляем часть средств. Список будем расширять — следите за обновлениями."
       />
       <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
@@ -52,7 +52,7 @@ export function Shelters() {
             className="flex h-full cursor-pointer flex-col"
             hover
             role="button"
-            aria-label={`Открыть информацию о приюте ${s.name}`}
+            aria-label={`Открыть информацию о партнёре ${s.name}`}
             tabIndex={0}
             onClick={() => setActiveShelterId(s.id)}
             onKeyDown={(e: ReactKeyboardEvent<HTMLDivElement>) => {

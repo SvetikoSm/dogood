@@ -24,20 +24,23 @@
 var ORDER_SHEET_HEADERS = [
   "Время",
   "Order ID",
+  "Позиция",
   "Имя",
   "Email",
   "Телефон",
   "Приют",
   "Адрес",
   "Доставка",
-  "Футболки",
+  "Кличка",
+  "Стиль",
+  "Цвет футболки",
+  "Цвет принта",
+  "Пол / размер",
+  "Как предыдущая",
+  "Сводка по всем позициям",
   "Комментарий",
   "Папка с фото",
   "Кол-во файлов",
-  "Цвет футболки (1-я поз.)",
-  "Стиль (id, 1-я)",
-  "Цвет принта",
-  "Пол / размер (1-я)",
   "Согласие ПДн",
   "Согласие оферта",
   "Ссылки на фото",
@@ -66,14 +69,25 @@ function doPost(e) {
     orderFolder.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
 
     /* files может быть пустым — строка в таблице и папка на Диске всё равно создаются */
+    var itemLinksMap = {};
     var fileLinks = [];
+    function parseItemIndex(field) {
+      var m = String(field || "").match(/^items\[(\d+)\]\[photos\]$/);
+      return m ? Number(m[1]) : null;
+    }
     for (var i = 0; i < files.length; i++) {
       var f = files[i];
       var bytes = Utilities.base64Decode(f.dataBase64);
       var blob = Utilities.newBlob(bytes, f.mimeType || "image/jpeg", f.originalName || "photo.jpg");
       var driveFile = orderFolder.createFile(blob);
       driveFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-      fileLinks.push(drivePublicViewUrl(driveFile.getId()));
+      var viewUrl = drivePublicViewUrl(driveFile.getId());
+      fileLinks.push(viewUrl);
+
+      var itemIndex = parseItemIndex(f.field);
+      var mapKey = itemIndex === null ? "_unmapped" : String(itemIndex);
+      if (!itemLinksMap[mapKey]) itemLinksMap[mapKey] = [];
+      itemLinksMap[mapKey].push(viewUrl);
     }
 
     var sheet = SpreadsheetApp.openById(sheetId).getSheets()[0];
@@ -97,38 +111,46 @@ function doPost(e) {
         .join("\n");
     }
 
-    var firstIt = order.items && order.items[0];
-    var shirtColor = firstIt && firstIt.color ? firstIt.color : "";
-    var styleId = firstIt && firstIt.printStyle ? firstIt.printStyle : "";
-    var printColor = firstIt && firstIt.printColor ? firstIt.printColor : "";
-    var genderSize =
-      firstIt && (firstIt.gender || firstIt.size)
-        ? (firstIt.gender || "") + "/" + (firstIt.size || "")
-        : "";
-
     var legal = order.legal || {};
+    var items = order.items && order.items.length ? order.items : [null];
+    for (var itemRow = 0; itemRow < items.length; itemRow++) {
+      var it = items[itemRow];
+      var isFirst = itemRow === 0;
+      var orderRef = isFirst
+        ? (order.orderId || "")
+        : ("add-on to " + (order.orderId || ""));
+      var positionLabel = it ? "#" + (itemRow + 1) : "#1";
+      var genderSize =
+        it && (it.gender || it.size)
+          ? (it.gender || "") + "/" + (it.size || "")
+          : "";
+      var itemLinks = (it && itemLinksMap[String(it.lineIndex)]) || [];
 
-    sheet.appendRow([
-      new Date(),
-      order.orderId || "",
-      order.customer ? order.customer.name : "",
-      order.customer ? order.customer.email : "",
-      order.customer ? order.customer.phone : "",
-      order.shelter ? order.shelter.name : "",
-      order.delivery ? order.delivery.address : "",
-      order.delivery ? order.delivery.methodLabel : "",
-      itemsSummary,
-      order.comment || "",
-      orderFolder.getUrl(),
-      fileLinks.length,
-      shirtColor,
-      styleId,
-      printColor,
-      genderSize,
-      legal.consentPersonalData ? "yes" : "no",
-      legal.consentTerms ? "yes" : "no",
-      fileLinks.join(","),
-    ]);
+      sheet.appendRow([
+        new Date(),
+        orderRef,
+        positionLabel,
+        isFirst && order.customer ? order.customer.name : "",
+        isFirst && order.customer ? order.customer.email : "",
+        isFirst && order.customer ? order.customer.phone : "",
+        isFirst && order.shelter ? order.shelter.name : "",
+        isFirst && order.delivery ? order.delivery.address : "",
+        isFirst && order.delivery ? order.delivery.methodLabel : "",
+        it && it.dogName ? it.dogName : "",
+        it ? (it.printStyleLabel || it.printStyle || "") : "",
+        it && it.color ? it.color : "",
+        it && it.printColor ? it.printColor : "",
+        genderSize,
+        it && it.sameAsPrevious ? "yes" : "no",
+        isFirst ? itemsSummary : "",
+        isFirst ? (order.comment || "") : "",
+        isFirst ? orderFolder.getUrl() : "",
+        itemLinks.length,
+        isFirst ? (legal.consentPersonalData ? "yes" : "no") : "",
+        isFirst ? (legal.consentTerms ? "yes" : "no") : "",
+        itemLinks.join(","),
+      ]);
+    }
 
     return jsonResponse({ ok: true, folderUrl: orderFolder.getUrl(), fileCount: fileLinks.length });
   } catch (err) {

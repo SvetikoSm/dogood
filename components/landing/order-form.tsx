@@ -225,16 +225,16 @@ export function OrderForm() {
       acc[style.value] = Array.from(
         new Set(
           [
-            fallbackPreviewByStyle[style.value] ?? "",
+            `/order-form-styles/${style.value}/2.webp`,
+            `/order-form-styles/${style.value}/2.jpg`,
+            `/order-form-styles/${style.value}/2.png`,
             `/products/${style.value}/main.webp`,
             `/products/${style.value}/main.png`,
             `/products/${style.value}/3.webp`,
             `/products/${style.value}/3.jpg`,
             `/products/${style.value}/4.webp`,
             `/products/${style.value}/4.jpg`,
-            `/order-form-styles/${style.value}/2.webp`,
-            `/order-form-styles/${style.value}/2.jpg`,
-            `/order-form-styles/${style.value}/2.png`,
+            fallbackPreviewByStyle[style.value] ?? "",
           ].filter(Boolean),
         ),
       );
@@ -951,7 +951,7 @@ export function OrderForm() {
           >
             {sheltersForOrderForm.map((s) => (
               <option key={s.id} value={s.id}>
-                {s.name}
+                {s.orderFormLabel ?? s.name}
               </option>
             ))}
           </select>

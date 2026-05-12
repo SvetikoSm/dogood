@@ -45,23 +45,27 @@ export async function POST(request: Request) {
   const pendingFilesCount = saved.diagnostics?.pendingFilesCount ?? 0;
   const pendingTotalBytes = saved.diagnostics?.pendingTotalBytes ?? 0;
 
-  let googleWebhookStatus: "skipped" | "ok" | "error" = "skipped";
-  let googleWebhookError: string | undefined;
+  let googleWebhookStatus: "skipped" | "pending" = "skipped";
 
   /* Вебхук не привязываем к savedToDisk: на Netlify запись в data/ часто недоступна,
    * но заказ и файлы уже собраны в памяти (googleWebhookPayload). */
   if (includeWebhookPayload && saved.googleWebhookPayload && webhookUrl) {
-    const fwd = await forwardOrderToGoogleWebhook({
-      webhookUrl,
-      secret: webhookSecret,
-      order: saved.googleWebhookPayload.order,
-      files: saved.googleWebhookPayload.files,
-    });
-    googleWebhookStatus = fwd.ok ? "ok" : "error";
-    if (!fwd.ok) googleWebhookError = fwd.error;
-    if (!fwd.ok) {
-      console.error("[api/order] google webhook failed:", fwd.error);
-    }
+    googleWebhookStatus = "pending";
+    const payload = saved.googleWebhookPayload;
+    // Не блокируем ответ клиенту из-за медленного Google: заказ считается принятым сразу.
+    void (async () => {
+      const fwd = await forwardOrderToGoogleWebhook({
+        webhookUrl,
+        secret: webhookSecret,
+        order: payload.order,
+        files: payload.files,
+      });
+      if (!fwd.ok) {
+        console.error("[api/order] google webhook failed:", saved.orderId, fwd.error);
+      } else {
+        console.log("[api/order] google webhook ok:", saved.orderId);
+      }
+    })();
   }
 
   console.log(
@@ -84,7 +88,6 @@ export async function POST(request: Request) {
     pendingFilesCount,
     pendingTotalBytes,
     filesPreparedForGoogle,
-    ...(googleWebhookError ? { googleWebhookError } : {}),
     ...(saved.error ? { warning: "disk_save_failed", detail: saved.error } : {}),
     received: Object.keys(summary),
   });

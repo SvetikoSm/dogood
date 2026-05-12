@@ -44,3 +44,7 @@ next-env.d.ts
 # заявки с сайта (локальные копии; не коммитим персональные данные)
 /data/order-submissions/*
 !/data/order-submissions/.gitkeep
+
+# Internal Studio (SQLite DB, Drive cache, generated artifacts)
+/data/studio/*
+!/data/studio/.gitkeep

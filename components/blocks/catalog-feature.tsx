@@ -12,9 +12,9 @@ import { cn } from "@/lib/utils";
 import { ProductImageCarousel } from "@/components/blocks/product-image-carousel";
 
 const icons = [
-  <Zap key="z" className="h-4 w-4 shrink-0" aria-hidden />,
-  <Sparkles key="s" className="h-4 w-4 shrink-0" aria-hidden />,
-  <Layout key="l" className="h-4 w-4 shrink-0" aria-hidden />,
+  <Zap key="z" className="h-3.5 w-3.5 shrink-0 sm:h-4 sm:w-4" aria-hidden />,
+  <Sparkles key="s" className="h-3.5 w-3.5 shrink-0 sm:h-4 sm:w-4" aria-hidden />,
+  <Layout key="l" className="h-3.5 w-3.5 shrink-0 sm:h-4 sm:w-4" aria-hidden />,
 ];
 
 export function CatalogFeature({ designs }: { designs: CatalogDesign[] }) {
@@ -35,7 +35,10 @@ export function CatalogFeature({ designs }: { designs: CatalogDesign[] }) {
   return (
     <Tabs.Root value={activeTab} onValueChange={setActiveTab} className="w-full">
       <Tabs.List
-        className="flex snap-x snap-mandatory gap-2 overflow-x-auto pb-1 sm:flex-row sm:flex-wrap sm:justify-center sm:gap-3 sm:overflow-visible sm:pb-0"
+        className="grid w-full gap-1.5 sm:gap-3"
+        style={{
+          gridTemplateColumns: `repeat(${tabs.length}, minmax(0, 1fr))`,
+        }}
         aria-label="Три базовых дизайна"
       >
         {tabs.map((tab) => (
@@ -43,13 +46,13 @@ export function CatalogFeature({ designs }: { designs: CatalogDesign[] }) {
             key={tab.value}
             value={tab.value}
             className={cn(
-              "flex min-w-[220px] shrink-0 snap-start items-center justify-center gap-2 rounded-xl border px-4 py-3 text-left text-sm font-semibold text-muted-foreground transition-colors sm:min-w-0 sm:shrink",
+              "flex min-h-[4.25rem] w-full min-w-0 flex-col items-center justify-center gap-1 rounded-lg border px-1 py-2 text-center text-[10px] font-semibold leading-snug text-muted-foreground transition-colors sm:min-h-0 sm:flex-row sm:gap-2 sm:rounded-xl sm:px-3 sm:py-3 sm:text-left sm:text-sm",
               "border-fuchsia-200 bg-white/70 hover:bg-white",
               "data-[state=active]:border-dogood-pink/50 data-[state=active]:bg-fuchsia-50 data-[state=active]:text-foreground",
             )}
           >
             {tab.icon}
-            <span className="leading-tight">{tab.label}</span>
+            <span className="max-w-full break-words leading-tight">{tab.label}</span>
           </Tabs.Trigger>
         ))}
       </Tabs.List>
