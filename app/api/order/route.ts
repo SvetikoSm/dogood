@@ -47,21 +47,45 @@ export async function POST(request: Request) {
 
   let googleWebhookStatus: "skipped" | "ok" | "error" = "skipped";
   let googleWebhookError: string | null = null;
+  let googleWebhookWarning: string | null = null;
 
   /* Вебхук не привязываем к savedToDisk: даже если диск недоступен, заказ и файлы
    * уже собраны в памяти (googleWebhookPayload), и их можно отправить в Google. */
   if (includeWebhookPayload && saved.googleWebhookPayload && webhookUrl) {
     const payload = saved.googleWebhookPayload;
-    const fwd = await forwardOrderToGoogleWebhook({
+    const fwdWithFiles = await forwardOrderToGoogleWebhook({
       webhookUrl,
       secret: webhookSecret,
       order: payload.order,
       files: payload.files,
     });
-    if (!fwd.ok) {
-      googleWebhookStatus = "error";
-      googleWebhookError = fwd.error;
-      console.error("[api/order] google webhook failed:", saved.orderId, fwd.error);
+    if (!fwdWithFiles.ok) {
+      // Деградация: если отправка с файлами упала, всё равно пытаемся записать заказ в Таблицу без файлов.
+      // Так заявка не теряется из-за некритичных проблем с фото/таймаутов Drive.
+      const fwdOrderOnly = await forwardOrderToGoogleWebhook({
+        webhookUrl,
+        secret: webhookSecret,
+        order: payload.order,
+        files: [],
+      });
+      if (!fwdOrderOnly.ok) {
+        googleWebhookStatus = "error";
+        googleWebhookError = `${fwdWithFiles.error}; fallback(no-files) failed: ${fwdOrderOnly.error}`;
+        console.error(
+          "[api/order] google webhook failed:",
+          saved.orderId,
+          googleWebhookError,
+        );
+      } else {
+        googleWebhookStatus = "ok";
+        googleWebhookWarning =
+          "Google принял заказ без файлов (fallback после ошибки отправки фото).";
+        console.warn(
+          "[api/order] google webhook fallback(no-files) ok:",
+          saved.orderId,
+          fwdWithFiles.error,
+        );
+      }
     } else {
       googleWebhookStatus = "ok";
       console.log("[api/order] google webhook ok:", saved.orderId);
@@ -87,6 +111,7 @@ export async function POST(request: Request) {
         savedToDisk: saved.savedToDisk,
         googleWebhook: googleWebhookStatus,
         googleWebhookError,
+        ...(googleWebhookWarning ? { googleWebhookWarning } : {}),
         ...(saved.error ? { warning: "disk_save_failed", detail: saved.error } : {}),
       },
       { status: 502 },
@@ -103,6 +128,7 @@ export async function POST(request: Request) {
     pendingTotalBytes,
     filesPreparedForGoogle,
     ...(googleWebhookError ? { googleWebhookError } : {}),
+    ...(googleWebhookWarning ? { googleWebhookWarning } : {}),
     ...(saved.error ? { warning: "disk_save_failed", detail: saved.error } : {}),
     received: Object.keys(summary),
   });
