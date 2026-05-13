@@ -45,27 +45,27 @@ export async function POST(request: Request) {
   const pendingFilesCount = saved.diagnostics?.pendingFilesCount ?? 0;
   const pendingTotalBytes = saved.diagnostics?.pendingTotalBytes ?? 0;
 
-  let googleWebhookStatus: "skipped" | "pending" = "skipped";
+  let googleWebhookStatus: "skipped" | "ok" | "error" = "skipped";
+  let googleWebhookError: string | null = null;
 
-  /* Вебхук не привязываем к savedToDisk: на Netlify запись в data/ часто недоступна,
-   * но заказ и файлы уже собраны в памяти (googleWebhookPayload). */
+  /* Вебхук не привязываем к savedToDisk: даже если диск недоступен, заказ и файлы
+   * уже собраны в памяти (googleWebhookPayload), и их можно отправить в Google. */
   if (includeWebhookPayload && saved.googleWebhookPayload && webhookUrl) {
-    googleWebhookStatus = "pending";
     const payload = saved.googleWebhookPayload;
-    // Не блокируем ответ клиенту из-за медленного Google: заказ считается принятым сразу.
-    void (async () => {
-      const fwd = await forwardOrderToGoogleWebhook({
-        webhookUrl,
-        secret: webhookSecret,
-        order: payload.order,
-        files: payload.files,
-      });
-      if (!fwd.ok) {
-        console.error("[api/order] google webhook failed:", saved.orderId, fwd.error);
-      } else {
-        console.log("[api/order] google webhook ok:", saved.orderId);
-      }
-    })();
+    const fwd = await forwardOrderToGoogleWebhook({
+      webhookUrl,
+      secret: webhookSecret,
+      order: payload.order,
+      files: payload.files,
+    });
+    if (!fwd.ok) {
+      googleWebhookStatus = "error";
+      googleWebhookError = fwd.error;
+      console.error("[api/order] google webhook failed:", saved.orderId, fwd.error);
+    } else {
+      googleWebhookStatus = "ok";
+      console.log("[api/order] google webhook ok:", saved.orderId);
+    }
   }
 
   console.log(
@@ -79,6 +79,20 @@ export async function POST(request: Request) {
     summary,
   );
 
+  if (googleWebhookStatus === "error") {
+    return NextResponse.json(
+      {
+        ok: false,
+        orderId: saved.orderId,
+        savedToDisk: saved.savedToDisk,
+        googleWebhook: googleWebhookStatus,
+        googleWebhookError,
+        ...(saved.error ? { warning: "disk_save_failed", detail: saved.error } : {}),
+      },
+      { status: 502 },
+    );
+  }
+
   return NextResponse.json({
     ok: true,
     orderId: saved.orderId,
@@ -88,6 +102,7 @@ export async function POST(request: Request) {
     pendingFilesCount,
     pendingTotalBytes,
     filesPreparedForGoogle,
+    ...(googleWebhookError ? { googleWebhookError } : {}),
     ...(saved.error ? { warning: "disk_save_failed", detail: saved.error } : {}),
     received: Object.keys(summary),
   });
