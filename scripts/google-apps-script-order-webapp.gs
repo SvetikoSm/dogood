@@ -64,30 +64,40 @@ function doPost(e) {
     var order = body.order;
     var files = body.files || [];
 
-    var rootFolder = DriveApp.getFolderById(folderId);
-    var orderFolder = rootFolder.createFolder(order.orderId || "order");
-    orderFolder.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    var orderFolder = null;
+    var driveError = null;
 
-    /* files может быть пустым — строка в таблице и папка на Диске всё равно создаются */
+    // Критично: заявка должна попасть в Таблицу даже при проблеме с Drive.
+    try {
+      var rootFolder = DriveApp.getFolderById(folderId);
+      orderFolder = rootFolder.createFolder(order.orderId || "order");
+      orderFolder.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    } catch (driveErr) {
+      driveError = String(driveErr);
+    }
+
+    /* files может быть пустым — строка в таблице всё равно создаётся */
     var itemLinksMap = {};
     var fileLinks = [];
     function parseItemIndex(field) {
       var m = String(field || "").match(/^items\[(\d+)\]\[photos\]$/);
       return m ? Number(m[1]) : null;
     }
-    for (var i = 0; i < files.length; i++) {
-      var f = files[i];
-      var bytes = Utilities.base64Decode(f.dataBase64);
-      var blob = Utilities.newBlob(bytes, f.mimeType || "image/jpeg", f.originalName || "photo.jpg");
-      var driveFile = orderFolder.createFile(blob);
-      driveFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-      var viewUrl = drivePublicViewUrl(driveFile.getId());
-      fileLinks.push(viewUrl);
+    if (orderFolder) {
+      for (var i = 0; i < files.length; i++) {
+        var f = files[i];
+        var bytes = Utilities.base64Decode(f.dataBase64);
+        var blob = Utilities.newBlob(bytes, f.mimeType || "image/jpeg", f.originalName || "photo.jpg");
+        var driveFile = orderFolder.createFile(blob);
+        driveFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+        var viewUrl = drivePublicViewUrl(driveFile.getId());
+        fileLinks.push(viewUrl);
 
-      var itemIndex = parseItemIndex(f.field);
-      var mapKey = itemIndex === null ? "_unmapped" : String(itemIndex);
-      if (!itemLinksMap[mapKey]) itemLinksMap[mapKey] = [];
-      itemLinksMap[mapKey].push(viewUrl);
+        var itemIndex = parseItemIndex(f.field);
+        var mapKey = itemIndex === null ? "_unmapped" : String(itemIndex);
+        if (!itemLinksMap[mapKey]) itemLinksMap[mapKey] = [];
+        itemLinksMap[mapKey].push(viewUrl);
+      }
     }
 
     var sheet = SpreadsheetApp.openById(sheetId).getSheets()[0];
@@ -144,7 +154,7 @@ function doPost(e) {
         it && it.sameAsPrevious ? "yes" : "no",
         isFirst ? itemsSummary : "",
         isFirst ? (order.comment || "") : "",
-        isFirst ? orderFolder.getUrl() : "",
+        isFirst && orderFolder ? orderFolder.getUrl() : "",
         itemLinks.length,
         isFirst ? (legal.consentPersonalData ? "yes" : "no") : "",
         isFirst ? (legal.consentTerms ? "yes" : "no") : "",
@@ -152,7 +162,12 @@ function doPost(e) {
       ]);
     }
 
-    return jsonResponse({ ok: true, folderUrl: orderFolder.getUrl(), fileCount: fileLinks.length });
+    return jsonResponse({
+      ok: true,
+      folderUrl: orderFolder ? orderFolder.getUrl() : "",
+      fileCount: fileLinks.length,
+      driveError: driveError,
+    });
   } catch (err) {
     return jsonResponse({ ok: false, error: String(err) });
   }
