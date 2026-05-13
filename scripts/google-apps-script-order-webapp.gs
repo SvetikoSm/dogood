@@ -64,42 +64,14 @@ function doPost(e) {
     var order = body.order;
     var files = body.files || [];
 
-    var orderFolder = null;
-    var driveError = null;
-
-    // Критично: заявка должна попасть в Таблицу даже при проблеме с Drive.
-    try {
-      var rootFolder = DriveApp.getFolderById(folderId);
-      orderFolder = rootFolder.createFolder(order.orderId || "order");
-      orderFolder.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-    } catch (driveErr) {
-      driveError = String(driveErr);
-    }
-
-    /* files может быть пустым — строка в таблице всё равно создаётся */
     var itemLinksMap = {};
     var fileLinks = [];
     function parseItemIndex(field) {
       var m = String(field || "").match(/^items\[(\d+)\]\[photos\]$/);
       return m ? Number(m[1]) : null;
     }
-    if (orderFolder) {
-      for (var i = 0; i < files.length; i++) {
-        var f = files[i];
-        var bytes = Utilities.base64Decode(f.dataBase64);
-        var blob = Utilities.newBlob(bytes, f.mimeType || "image/jpeg", f.originalName || "photo.jpg");
-        var driveFile = orderFolder.createFile(blob);
-        driveFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-        var viewUrl = drivePublicViewUrl(driveFile.getId());
-        fileLinks.push(viewUrl);
 
-        var itemIndex = parseItemIndex(f.field);
-        var mapKey = itemIndex === null ? "_unmapped" : String(itemIndex);
-        if (!itemLinksMap[mapKey]) itemLinksMap[mapKey] = [];
-        itemLinksMap[mapKey].push(viewUrl);
-      }
-    }
-
+    // Сначала только Таблица — без DriveApp. Так заказ не теряется, если Drive временно недоступен.
     var sheet = SpreadsheetApp.openById(sheetId).getSheets()[0];
     ensureHeaderRow(sheet);
 
@@ -134,7 +106,6 @@ function doPost(e) {
         it && (it.gender || it.size)
           ? (it.gender || "") + "/" + (it.size || "")
           : "";
-      var itemLinks = (it && itemLinksMap[String(it.lineIndex)]) || [];
 
       sheet.appendRow([
         new Date(),
@@ -154,12 +125,62 @@ function doPost(e) {
         it && it.sameAsPrevious ? "yes" : "no",
         isFirst ? itemsSummary : "",
         isFirst ? (order.comment || "") : "",
-        isFirst && orderFolder ? orderFolder.getUrl() : "",
-        itemLinks.length,
+        "",
+        0,
         isFirst ? (legal.consentPersonalData ? "yes" : "no") : "",
         isFirst ? (legal.consentTerms ? "yes" : "no") : "",
-        itemLinks.join(","),
+        "",
       ]);
+    }
+
+    var firstDataRow = sheet.getLastRow() - items.length + 1;
+    var COL_FOLDER = 18;
+    var COL_FILECOUNT = 19;
+    var COL_LINKS = 22;
+
+    var orderFolder = null;
+    var driveError = null;
+
+    try {
+      var rootFolder = DriveApp.getFolderById(folderId);
+      orderFolder = rootFolder.createFolder(order.orderId || "order");
+      orderFolder.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+
+      for (var fi = 0; fi < files.length; fi++) {
+        var f = files[fi];
+        var bytes = Utilities.base64Decode(f.dataBase64);
+        var blob = Utilities.newBlob(bytes, f.mimeType || "image/jpeg", f.originalName || "photo.jpg");
+        var driveFile = orderFolder.createFile(blob);
+        driveFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+        var viewUrl = drivePublicViewUrl(driveFile.getId());
+        fileLinks.push(viewUrl);
+
+        var itemIndex = parseItemIndex(f.field);
+        var mapKey = itemIndex === null ? "_unmapped" : String(itemIndex);
+        if (!itemLinksMap[mapKey]) itemLinksMap[mapKey] = [];
+        itemLinksMap[mapKey].push(viewUrl);
+      }
+
+      if (orderFolder) {
+        sheet.getRange(firstDataRow, COL_FOLDER).setValue(orderFolder.getUrl());
+      }
+
+      for (var ur = 0; ur < items.length; ur++) {
+        var it2 = items[ur];
+        var rowNum = firstDataRow + ur;
+        var linksForRow =
+          it2 && itemLinksMap[String(it2.lineIndex)]
+            ? itemLinksMap[String(it2.lineIndex)].join(",")
+            : "";
+        var cnt =
+          it2 && itemLinksMap[String(it2.lineIndex)]
+            ? itemLinksMap[String(it2.lineIndex)].length
+            : 0;
+        sheet.getRange(rowNum, COL_FILECOUNT).setValue(cnt);
+        sheet.getRange(rowNum, COL_LINKS).setValue(linksForRow);
+      }
+    } catch (driveErr) {
+      driveError = String(driveErr);
     }
 
     return jsonResponse({
