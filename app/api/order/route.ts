@@ -60,8 +60,9 @@ export async function POST(request: Request) {
       files: payload.files,
     });
     if (!fwdWithFiles.ok) {
-      // Деградация: если отправка с файлами упала, всё равно пытаемся записать заказ в Таблицу без файлов.
-      // Так заявка не теряется из-за некритичных проблем с фото/таймаутов Drive.
+      // Деградация: если отправка с файлами упала, всё равно пытаемся записать заказ в Таблицу без файлов,
+      // чтобы заявка не терялась из‑за фото/таймаута Drive. Повторный POST не дублирует строки: в Apps Script
+      // есть проверка orderId в колонке «Order ID».
       const fwdOrderOnly = await forwardOrderToGoogleWebhook({
         webhookUrl,
         secret: webhookSecret,

@@ -20,6 +20,12 @@
  * 3) Project Settings → Script properties: WEBHOOK_SECRET, SHEET_ID, FOLDER_ID.
  * 4) Deploy → Web app → скопировать URL в GOOGLE_ORDER_WEBHOOK_URL на сайте.
  * 5) .env.local: GOOGLE_ORDER_WEBHOOK_SECRET = тот же секрет, что WEBHOOK_SECRET.
+ *
+ * --- Дубликаты в таблице ---
+ * Сайт при сбое первого POST может отправить второй (fallback без файлов). Без проверки
+ * заказ дважды дописался бы в лист. Если в колонке «Order ID» уже есть этот orderId,
+ * повторный вызов без файлов ничего не пишет (duplicateSkipped). Если пришли файлы —
+ * догружаем их в папку заказа из колонки «Папка с фото» (или создаём папку заново).
  */
 var ORDER_SHEET_HEADERS = [
   "Время",
@@ -74,6 +80,23 @@ function doPost(e) {
     // Сначала только Таблица — без DriveApp. Так заказ не теряется, если Drive временно недоступен.
     var sheet = SpreadsheetApp.openById(sheetId).getSheets()[0];
     ensureHeaderRow(sheet);
+
+    var orderIdKey = String(order.orderId || "").trim();
+    var existingFirstRow = orderIdKey ? findFirstDataRowWithOrderId_(sheet, orderIdKey) : -1;
+    if (existingFirstRow !== -1) {
+      if (!files.length) {
+        return jsonResponse({
+          ok: true,
+          duplicateSkipped: true,
+          folderUrl: "",
+          fileCount: 0,
+          filesReceived: 0,
+          uploadErrors: [],
+          driveError: null,
+        });
+      }
+      return mergePhotosIntoExistingOrder_(sheet, existingFirstRow, order, files, folderId);
+    }
 
     var itemsSummary = "";
     if (order.items && order.items.length) {
@@ -140,25 +163,50 @@ function doPost(e) {
 
     var orderFolder = null;
     var driveError = null;
+    var uploadErrors = [];
 
     try {
       var rootFolder = DriveApp.getFolderById(folderId);
       orderFolder = rootFolder.createFolder(order.orderId || "order");
       orderFolder.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
 
+      // Каждый файл отдельно: если один битый (base64/HEIC/лимит), остальные всё равно загрузятся.
       for (var fi = 0; fi < files.length; fi++) {
         var f = files[fi];
-        var bytes = Utilities.base64Decode(f.dataBase64);
-        var blob = Utilities.newBlob(bytes, f.mimeType || "image/jpeg", f.originalName || "photo.jpg");
-        var driveFile = orderFolder.createFile(blob);
-        driveFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-        var viewUrl = drivePublicViewUrl(driveFile.getId());
-        fileLinks.push(viewUrl);
+        try {
+          if (!f || !f.dataBase64 || String(f.dataBase64).length === 0) {
+            uploadErrors.push({
+              field: f && f.field ? f.field : String(fi),
+              error: "empty dataBase64",
+            });
+            continue;
+          }
+          var bytes = Utilities.base64Decode(f.dataBase64);
+          if (!bytes || bytes.length === 0) {
+            uploadErrors.push({
+              field: f.field || String(fi),
+              error: "base64 decode yielded empty bytes",
+            });
+            continue;
+          }
+          var mime = f.mimeType || "image/jpeg";
+          var name = f.originalName || "photo.jpg";
+          var blob = Utilities.newBlob(bytes, mime, name);
+          var driveFile = orderFolder.createFile(blob);
+          driveFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+          var viewUrl = drivePublicViewUrl(driveFile.getId());
+          fileLinks.push(viewUrl);
 
-        var itemIndex = parseItemIndex(f.field);
-        var mapKey = itemIndex === null ? "_unmapped" : String(itemIndex);
-        if (!itemLinksMap[mapKey]) itemLinksMap[mapKey] = [];
-        itemLinksMap[mapKey].push(viewUrl);
+          var itemIndex = parseItemIndex(f.field);
+          var mapKey = itemIndex === null ? "_unmapped" : String(itemIndex);
+          if (!itemLinksMap[mapKey]) itemLinksMap[mapKey] = [];
+          itemLinksMap[mapKey].push(viewUrl);
+        } catch (oneFileErr) {
+          uploadErrors.push({
+            field: f && f.field ? f.field : String(fi),
+            error: String(oneFileErr),
+          });
+        }
       }
 
       if (orderFolder) {
@@ -187,6 +235,8 @@ function doPost(e) {
       ok: true,
       folderUrl: orderFolder ? orderFolder.getUrl() : "",
       fileCount: fileLinks.length,
+      filesReceived: files.length,
+      uploadErrors: uploadErrors,
       driveError: driveError,
     });
   } catch (err) {
@@ -202,6 +252,116 @@ function drivePublicViewUrl(fileId) {
   return "https://drive.google.com/uc?export=view&id=" + encodeURIComponent(fileId);
 }
 
+function extractDriveFolderIdFromUrl_(input) {
+  var u = String(input || "").trim();
+  if (!u) return "";
+  var m = u.match(/\/folders\/([a-zA-Z0-9_-]+)/);
+  if (m && m[1]) return m[1];
+  var m2 = u.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+  if (m2 && m2[1]) return m2[1];
+  if (/^[a-zA-Z0-9_-]{10,}$/.test(u)) return u;
+  return "";
+}
+
+function parsePhotoFieldLineIndex_(field) {
+  var m = String(field || "").match(/^items\[(\d+)\]\[photos\]$/);
+  return m ? Number(m[1]) : null;
+}
+
+/**
+ * Заказ уже есть в листе; пришли файлы (повторный POST с фото) — догружаем в папку,
+ * суммируем счётчики и ссылки в строках позиций.
+ */
+function mergePhotosIntoExistingOrder_(sheet, firstDataRow, order, files, parentFolderId) {
+  var COL_FOLDER = 18;
+  var COL_FILECOUNT = 19;
+  var COL_LINKS = 22;
+
+  var items = order.items && order.items.length ? order.items : [null];
+  var itemLinksMap = {};
+  var fileLinks = [];
+  var uploadErrors = [];
+  var driveError = null;
+  var orderFolder = null;
+
+  try {
+    var folderUrlCell = String(sheet.getRange(firstDataRow, COL_FOLDER).getValue() || "").trim();
+    var fid = extractDriveFolderIdFromUrl_(folderUrlCell);
+    if (fid) {
+      orderFolder = DriveApp.getFolderById(fid);
+    } else {
+      var rootFolder = DriveApp.getFolderById(parentFolderId);
+      orderFolder = rootFolder.createFolder(order.orderId || "order");
+      orderFolder.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+      sheet.getRange(firstDataRow, COL_FOLDER).setValue(orderFolder.getUrl());
+    }
+
+    for (var fi = 0; fi < files.length; fi++) {
+      var f = files[fi];
+      try {
+        if (!f || !f.dataBase64 || String(f.dataBase64).length === 0) {
+          uploadErrors.push({
+            field: f && f.field ? f.field : String(fi),
+            error: "empty dataBase64",
+          });
+          continue;
+        }
+        var bytes = Utilities.base64Decode(f.dataBase64);
+        if (!bytes || bytes.length === 0) {
+          uploadErrors.push({
+            field: f.field || String(fi),
+            error: "base64 decode yielded empty bytes",
+          });
+          continue;
+        }
+        var mime = f.mimeType || "image/jpeg";
+        var name = f.originalName || "photo.jpg";
+        var blob = Utilities.newBlob(bytes, mime, name);
+        var driveFile = orderFolder.createFile(blob);
+        driveFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+        var viewUrl = drivePublicViewUrl(driveFile.getId());
+        fileLinks.push(viewUrl);
+        var itemIndex = parsePhotoFieldLineIndex_(f.field);
+        var mapKey = itemIndex === null ? "_unmapped" : String(itemIndex);
+        if (!itemLinksMap[mapKey]) itemLinksMap[mapKey] = [];
+        itemLinksMap[mapKey].push(viewUrl);
+      } catch (oneFileErr) {
+        uploadErrors.push({
+          field: f && f.field ? f.field : String(fi),
+          error: String(oneFileErr),
+        });
+      }
+    }
+
+    for (var ur = 0; ur < items.length; ur++) {
+      var it2 = items[ur];
+      var rowNum = firstDataRow + ur;
+      var newLinksArr =
+        it2 && itemLinksMap[String(it2.lineIndex)] ? itemLinksMap[String(it2.lineIndex)] : [];
+      var newCnt = newLinksArr.length;
+      if (newCnt === 0) continue;
+      var prevCnt = Number(sheet.getRange(rowNum, COL_FILECOUNT).getValue()) || 0;
+      var prevLinks = String(sheet.getRange(rowNum, COL_LINKS).getValue() || "").trim();
+      var addLinks = newLinksArr.join(",");
+      var combined = prevLinks ? prevLinks + "," + addLinks : addLinks;
+      sheet.getRange(rowNum, COL_FILECOUNT).setValue(prevCnt + newCnt);
+      sheet.getRange(rowNum, COL_LINKS).setValue(combined);
+    }
+  } catch (e) {
+    driveError = String(e);
+  }
+
+  return jsonResponse({
+    ok: true,
+    duplicatePhotoMerge: true,
+    folderUrl: orderFolder ? orderFolder.getUrl() : "",
+    fileCount: fileLinks.length,
+    filesReceived: files.length,
+    uploadErrors: uploadErrors,
+    driveError: driveError,
+  });
+}
+
 function ensureHeaderRow(sheet) {
   var lastCol = sheet.getLastColumn();
   if (lastCol === 0) {
@@ -214,4 +374,18 @@ function ensureHeaderRow(sheet) {
     var slice = ORDER_SHEET_HEADERS.slice(start);
     sheet.getRange(1, start + 1, 1, slice.length).setValues([slice]);
   }
+}
+
+/** Колонка B = «Order ID» (первая строка заказа совпадает с order.orderId). */
+function findFirstDataRowWithOrderId_(sheet, orderId) {
+  var id = String(orderId || "").trim();
+  if (!id) return -1;
+  var last = sheet.getLastRow();
+  if (last < 2) return -1;
+  var colOrderId = 2;
+  var vals = sheet.getRange(2, colOrderId, last, colOrderId).getValues();
+  for (var i = 0; i < vals.length; i++) {
+    if (String(vals[i][0] || "").trim() === id) return i + 2;
+  }
+  return -1;
 }

@@ -8,7 +8,14 @@ export type GoogleWebhookFilePart = {
 };
 
 type ForwardResult = { ok: true } | { ok: false; error: string };
-type WebhookJson = { ok?: boolean; error?: string; fileCount?: number };
+type WebhookJson = {
+  ok?: boolean;
+  error?: string;
+  fileCount?: number;
+  filesReceived?: number;
+  uploadErrors?: { field?: string; error?: string }[];
+  driveError?: string | null;
+};
 
 /**
  * Отправляет JSON в развёрнутый Google Apps Script (веб-приложение).
@@ -46,17 +53,29 @@ export async function forwardOrderToGoogleWebhook(opts: {
     } catch {
       /* пустой или не-JSON ответ — считаем успехом при 2xx */
     }
+    /* Не считаем fileCount=0 ошибкой: строки в Таблице уже могли записаться, а фото — нет;
+     * тогда сайт делал fallback без файлов + duplicateSkipped в GAS и фото никогда не догружались. */
     if (
       files.length > 0 &&
       parsed &&
       typeof parsed.fileCount === "number" &&
       parsed.fileCount === 0
     ) {
-      return {
-        ok: false,
-        error:
-          "Google webhook вернул fileCount=0 при отправленных файлах. Проверьте deployment Apps Script и WEBHOOK URL.",
-      };
+      const hint: string[] = [];
+      if (typeof parsed.filesReceived === "number") {
+        hint.push(`filesReceived=${parsed.filesReceived}`);
+      }
+      if (parsed.uploadErrors?.length) {
+        hint.push(`uploadErrors=${JSON.stringify(parsed.uploadErrors).slice(0, 1500)}`);
+      }
+      if (parsed.driveError) {
+        hint.push(`driveError=${String(parsed.driveError).slice(0, 400)}`);
+      }
+      console.warn(
+        "[forwardOrderToGoogleWebhook] Google вернул fileCount=0 при отправленных файлах:",
+        files.length,
+        hint.length ? hint.join("; ") : "(без деталей)",
+      );
     }
     return { ok: true };
   } catch (e) {

@@ -607,16 +607,21 @@ export function OrderForm() {
                     >
                       Кличка на футболке
                     </label>
+                    <p className="mb-1.5 text-xs text-muted-foreground">
+                      Напишите само имя питомца так, как его печатать на футболке (кириллица или
+                      латиница — как вам нужно). Это не выбор «языка интерфейса».
+                    </p>
                     <input
                       id={`${baseId}-dog-${index}`}
                       name={`items[${index}][dogName]`}
                       required
+                      autoComplete="off"
                       value={line.dogName}
                       onChange={(e) =>
                         updateLine(index, { dogName: e.target.value })
                       }
                       className={fieldClass}
-                      placeholder="Как хотите: на русском или английском"
+                      placeholder="Например: Макс, Барни или Luna"
                     />
                   </div>
 
