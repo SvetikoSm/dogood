@@ -81,6 +81,22 @@ docker login
 Пример конфига в репозитории: `deploy/nginx-dogood.conf.example`.  
 Сертификаты обычно через `certbot --nginx -d ваш-домен.ru`.
 
+### Заказ с фото (`POST /api/order`)
+
+У Nginx по умолчанию лимит тела запроса часто **1 МБ**. Заявка с несколькими сжатыми фото может **обрезаться** (клиент видит ошибку или «файлы не дошли» до Google).
+
+В блоке `server { ... }` (или в `location`, где `proxy_pass` на приложение) добавьте:
+
+```nginx
+client_max_body_size 25m;
+```
+
+Проверка и перезагрузка:
+
+```bash
+sudo nginx -t && sudo systemctl reload nginx
+```
+
 ---
 
 ## Частые ошибки

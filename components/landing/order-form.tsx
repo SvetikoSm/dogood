@@ -350,8 +350,11 @@ export function OrderForm() {
       }
     }
 
+    const hadPhotosForOrder =
+      compressedByLine.some((a) => (a?.length ?? 0) > 0) ||
+      linePhotos.some((slots) => (slots?.length ?? 0) > 0);
+
     try {
-      const res = await fetch("/api/order", {
         method: "POST",
         body: formData,
       });
@@ -361,6 +364,16 @@ export function OrderForm() {
         detail?: string;
         googleWebhook?: "skipped" | "pending" | "ok" | "error";
         googleWebhookError?: string;
+        filesPreparedForGoogle?: number;
+        googleWebhookSummaries?: {
+          withFiles?: {
+            fileCount?: number;
+            filesReceived?: number;
+            duplicateSkipped?: boolean;
+            driveError?: string | null;
+            uploadErrors?: { field?: string; error?: string }[];
+          };
+        };
       } = {};
       try {
         data = JSON.parse(raw) as typeof data;
@@ -407,6 +420,29 @@ export function OrderForm() {
       } else {
         setDoneGoogleNotice(null);
       }
+
+      const wf = data.googleWebhookSummaries?.withFiles;
+      if (
+        data.googleWebhook === "ok" &&
+        hadPhotosForOrder &&
+        (data.filesPreparedForGoogle ?? 0) > 0 &&
+        wf &&
+        (wf.fileCount ?? 0) === 0 &&
+        !wf.duplicateSkipped
+      ) {
+        const u = wf.uploadErrors?.[0];
+        const hint = u?.error
+          ? `${u.field ?? "файл"}: ${String(u.error).slice(0, 140)}`
+          : wf.driveError
+            ? String(wf.driveError).slice(0, 160)
+            : wf.filesReceived === 0
+              ? "Google не получил вложения (filesReceived=0) — проверьте деплой Apps Script и лимит тела запроса в Nginx."
+              : "";
+        setDoneGoogleNotice(
+          `Заявка ${data.orderId ?? "—"} принята, но в папку Google Диск не попали фото. ${hint ? `Деталь: ${hint} ` : ""}Сохраните номер заказа и напишите нам — пришлите скрин ответа из инструментов разработчика (Network → order).`,
+        );
+      }
+
       setStatus("done");
       clearNetworkIssue();
       form.reset();

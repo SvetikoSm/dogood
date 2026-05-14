@@ -181,7 +181,7 @@ function doPost(e) {
             });
             continue;
           }
-          var bytes = Utilities.base64Decode(f.dataBase64);
+          var bytes = decodeWebhookFileBytes_(f.dataBase64);
           if (!bytes || bytes.length === 0) {
             uploadErrors.push({
               field: f.field || String(fi),
@@ -190,7 +190,7 @@ function doPost(e) {
             continue;
           }
           var mime = f.mimeType || "image/jpeg";
-          var name = f.originalName || "photo.jpg";
+          var name = safeDriveFileName_(f.originalName || "photo.jpg");
           var blob = Utilities.newBlob(bytes, mime, name);
           var driveFile = orderFolder.createFile(blob);
           driveFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
@@ -252,6 +252,25 @@ function drivePublicViewUrl(fileId) {
   return "https://drive.google.com/uc?export=view&id=" + encodeURIComponent(fileId);
 }
 
+/** Убирает префикс data:image/...;base64, и пробелы — иначе decode падает или даёт пусто. */
+function decodeWebhookFileBytes_(dataBase64) {
+  var s = String(dataBase64 || "").trim();
+  if (!s) return null;
+  var dataIdx = s.indexOf("base64,");
+  if (s.indexOf("data:") === 0 && dataIdx !== -1) {
+    s = s.substring(dataIdx + 7);
+  }
+  s = s.replace(/\s/g, "");
+  if (!s.length) return null;
+  return Utilities.base64Decode(s);
+}
+
+function safeDriveFileName_(originalName) {
+  var n = String(originalName || "photo.jpg").replace(/[^\w.\-()]/g, "_");
+  if (n.length > 120) n = n.slice(-120);
+  return n || "photo.jpg";
+}
+
 function extractDriveFolderIdFromUrl_(input) {
   var u = String(input || "").trim();
   if (!u) return "";
@@ -306,7 +325,7 @@ function mergePhotosIntoExistingOrder_(sheet, firstDataRow, order, files, parent
           });
           continue;
         }
-        var bytes = Utilities.base64Decode(f.dataBase64);
+        var bytes = decodeWebhookFileBytes_(f.dataBase64);
         if (!bytes || bytes.length === 0) {
           uploadErrors.push({
             field: f.field || String(fi),
@@ -315,7 +334,7 @@ function mergePhotosIntoExistingOrder_(sheet, firstDataRow, order, files, parent
           continue;
         }
         var mime = f.mimeType || "image/jpeg";
-        var name = f.originalName || "photo.jpg";
+        var name = safeDriveFileName_(f.originalName || "photo.jpg");
         var blob = Utilities.newBlob(bytes, mime, name);
         var driveFile = orderFolder.createFile(blob);
         driveFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);

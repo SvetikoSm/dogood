@@ -7,7 +7,21 @@ export type GoogleWebhookFilePart = {
   dataBase64: string;
 };
 
-type ForwardResult = { ok: true } | { ok: false; error: string };
+/** Короткий разбор ответа веб-приложения Google (для логов и JSON ответа /api/order). */
+export type GoogleWebhookSummary = {
+  fileCount?: number;
+  filesReceived?: number;
+  uploadErrors?: { field?: string; error?: string }[];
+  driveError?: string | null;
+  duplicateSkipped?: boolean;
+  duplicatePhotoMerge?: boolean;
+  folderUrl?: string;
+};
+
+export type ForwardResult =
+  | { ok: true; summary?: GoogleWebhookSummary }
+  | { ok: false; error: string };
+
 type WebhookJson = {
   ok?: boolean;
   error?: string;
@@ -15,7 +29,29 @@ type WebhookJson = {
   filesReceived?: number;
   uploadErrors?: { field?: string; error?: string }[];
   driveError?: string | null;
+  duplicateSkipped?: boolean;
+  duplicatePhotoMerge?: boolean;
+  folderUrl?: string;
 };
+
+function summarizeWebhookJson(parsed: WebhookJson | null): GoogleWebhookSummary | undefined {
+  if (!parsed || typeof parsed !== "object") return undefined;
+  const uploadErrors = parsed.uploadErrors?.length
+    ? parsed.uploadErrors.slice(0, 20).map((e) => ({
+        field: e.field,
+        error: e.error ? String(e.error).slice(0, 400) : "",
+      }))
+    : undefined;
+  return {
+    fileCount: typeof parsed.fileCount === "number" ? parsed.fileCount : undefined,
+    filesReceived: typeof parsed.filesReceived === "number" ? parsed.filesReceived : undefined,
+    uploadErrors,
+    driveError: parsed.driveError != null ? String(parsed.driveError).slice(0, 800) : undefined,
+    duplicateSkipped: parsed.duplicateSkipped === true,
+    duplicatePhotoMerge: parsed.duplicatePhotoMerge === true,
+    folderUrl: typeof parsed.folderUrl === "string" ? parsed.folderUrl : undefined,
+  };
+}
 
 /**
  * Отправляет JSON в развёрнутый Google Apps Script (веб-приложение).
@@ -53,6 +89,7 @@ export async function forwardOrderToGoogleWebhook(opts: {
     } catch {
       /* пустой или не-JSON ответ — считаем успехом при 2xx */
     }
+    const summary = summarizeWebhookJson(parsed);
     /* Не считаем fileCount=0 ошибкой: строки в Таблице уже могли записаться, а фото — нет;
      * тогда сайт делал fallback без файлов + duplicateSkipped в GAS и фото никогда не догружались. */
     if (
@@ -77,7 +114,7 @@ export async function forwardOrderToGoogleWebhook(opts: {
         hint.length ? hint.join("; ") : "(без деталей)",
       );
     }
-    return { ok: true };
+    return { ok: true, summary };
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     if (message === "The user aborted a request." || message.includes("abort")) {
