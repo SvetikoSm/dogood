@@ -364,6 +364,7 @@ export function OrderForm() {
         orderId?: string;
         detail?: string;
         googleWebhook?: "skipped" | "pending" | "ok" | "error";
+        googleWebhookWarning?: string;
         googleWebhookError?: string;
         filesPreparedForGoogle?: number;
         googleWebhookSummaries?: {
@@ -397,27 +398,19 @@ export function OrderForm() {
         return;
       }
 
-      if (data.googleWebhook === "error") {
-        const detail = data.googleWebhookError?.trim();
-        setSubmitError(
-          detail
-            ? `Данные не дошли до Google (таблица/Диск). Заявка на сайте: ${data.orderId ?? "—"}. ${detail.slice(0, 280)}${detail.length > 280 ? "…" : ""} Сохраните номер и напишите нам — или отправьте форму ещё раз.`
-            : `Не удалось отправить заявку в Google. Номер на сайте: ${data.orderId ?? "—"}. Попробуйте позже или свяжитесь с нами.`,
-        );
-        setLastOrderId(data.orderId ?? null);
-        setStatus("error");
-        return;
-      }
-
       setLastOrderId(data.orderId ?? null);
+
+      const webhookWarn = data.googleWebhookWarning?.trim();
       if (data.googleWebhook === "skipped") {
         setDoneGoogleNotice(
-          "Отправка в Google Таблицу и Диск на сервере не настроена — заявка принята только на стороне сайта. Сохраните номер и напишите нам.",
+          "Отправка в Google Таблицу и Диск на сервере не настроена — заявка принята на сайте. Сохраните номер и напишите нам.",
         );
       } else if (data.googleWebhook === "pending") {
         setDoneGoogleNotice(
           "Заявка принята. Данные в Google Таблицу и Диск догружаются в фоне — это может занять до 1-2 минут.",
         );
+      } else if (webhookWarn) {
+        setDoneGoogleNotice(webhookWarn);
       } else {
         setDoneGoogleNotice(null);
       }

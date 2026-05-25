@@ -106,7 +106,8 @@ export async function POST(request: Request) {
           googleWebhookWarning = `В папку загружено ${driveUp.uploaded} из ${payload.files.length} фото (часть через Drive API).`;
         }
       }
-    } else if (payload.files.length === 0) {
+    } else {
+      /* Заказ для клиента всегда принимаем: при сбое отправки с фото пробуем хотя бы строку в Таблице. */
       const fwdOrderOnly = await forwardOrderToGoogleWebhook({
         webhookUrl,
         secret: webhookSecret,
@@ -116,19 +117,26 @@ export async function POST(request: Request) {
       if (fwdOrderOnly.ok) {
         googleWebhookNoFilesSummary = fwdOrderOnly.summary;
         googleWebhookStatus = "ok";
+        googleWebhookWarning =
+          payload.files.length > 0
+            ? "Заказ принят в Google Таблицу; фото с первой попытки не дошли — сохраните номер заказа, мы свяжемся и догрузим фото."
+            : null;
+        console.warn(
+          "[api/order] google webhook degraded (order only):",
+          saved.orderId,
+          fwdWithFiles.error,
+        );
       } else {
-        googleWebhookStatus = "error";
-        googleWebhookError = `${fwdWithFiles.error}; fallback(no-files) failed: ${fwdOrderOnly.error}`;
-        console.error("[api/order] google webhook failed:", saved.orderId, googleWebhookError);
+        googleWebhookStatus = "ok";
+        googleWebhookWarning =
+          "Заявка сохранена на сайте, но Google (таблица/Диск) временно недоступен. Сохраните номер заказа — мы обработаем вручную.";
+        googleWebhookError = `${fwdWithFiles.error}; fallback(no-files): ${fwdOrderOnly.error}`;
+        console.error(
+          "[api/order] google webhook failed, order still accepted:",
+          saved.orderId,
+          googleWebhookError,
+        );
       }
-    } else {
-      googleWebhookStatus = "error";
-      googleWebhookError = fwdWithFiles.error;
-      console.error(
-        "[api/order] google webhook failed (фото не отправляем повтором без файлов):",
-        saved.orderId,
-        googleWebhookError,
-      );
     }
 
     if (googleWebhookStatus === "ok") {
@@ -154,22 +162,6 @@ export async function POST(request: Request) {
     `heicConverted:${heicConvertedCount}`,
     summary,
   );
-
-  if (googleWebhookStatus === "error") {
-    return NextResponse.json(
-      {
-        ok: false,
-        orderId: saved.orderId,
-        savedToDisk: saved.savedToDisk,
-        googleWebhook: googleWebhookStatus,
-        googleWebhookError,
-        ...(driveApiPhotoUpload ? { driveApiPhotoUpload } : {}),
-    ...(googleWebhookWarning ? { googleWebhookWarning } : {}),
-        ...(saved.error ? { warning: "disk_save_failed", detail: saved.error } : {}),
-      },
-      { status: 502 },
-    );
-  }
 
   return NextResponse.json({
     ok: true,
