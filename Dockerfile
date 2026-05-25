@@ -27,6 +27,10 @@ RUN groupadd --system --gid 1001 nodejs \
 COPY --from=builder /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+# heic-convert (serverExternalPackages) — явно, если tracer не подтянул зависимость
+COPY --from=builder --chown=nextjs:nodejs /app/node_modules/heic-convert ./node_modules/heic-convert
+COPY --from=builder --chown=nextjs:nodejs /app/node_modules/heic-decode ./node_modules/heic-decode
+COPY --from=builder --chown=nextjs:nodejs /app/node_modules/jpeg-js ./node_modules/jpeg-js
 
 RUN mkdir -p /app/data/order-submissions && chown -R nextjs:nodejs /app/data
 

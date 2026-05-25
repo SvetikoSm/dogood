@@ -49,9 +49,51 @@ export async function tryHeic2anyToJpegFile(file: File): Promise<File | null> {
   }
 }
 
+/** Safari / новый Edge иногда декодируют HEIC через createImageBitmap + canvas. */
+export async function tryRasterizeToJpegFile(
+  file: File,
+  quality = 0.82,
+): Promise<File | null> {
+  try {
+    const bitmap = await createImageBitmap(file);
+    try {
+      const canvas = document.createElement("canvas");
+      canvas.width = bitmap.width;
+      canvas.height = bitmap.height;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return null;
+      ctx.drawImage(bitmap, 0, 0);
+      const blob = await new Promise<Blob | null>((resolve) =>
+        canvas.toBlob((b) => resolve(b), "image/jpeg", quality),
+      );
+      if (!blob || blob.size === 0) return null;
+      const name = file.name.replace(/\.[^.]+$/i, ".jpg") || "photo.jpg";
+      return new File([blob], name, {
+        type: "image/jpeg",
+        lastModified: Date.now(),
+      });
+    } finally {
+      bitmap.close();
+    }
+  } catch {
+    return null;
+  }
+}
+
+export const HEIC_UPLOAD_HELP =
+  "Не удалось прочитать фото в формате HEIC (часто с iPhone). В «Фото» откройте снимок → Поделиться → «Сохранить как JPEG» или выберите другое фото (JPG/PNG).";
+
 export async function convertHeicToJpegIfNeeded(file: File): Promise<File> {
   const should =
     looksLikeHeic(file) || (await isLikelyHeifContainer(file));
   if (!should) return file;
-  return (await tryHeic2anyToJpegFile(file)) ?? file;
+
+  const viaLib = await tryHeic2anyToJpegFile(file);
+  if (viaLib) return viaLib;
+
+  const viaCanvas = await tryRasterizeToJpegFile(file);
+  if (viaCanvas) return viaCanvas;
+
+  /* Браузер не смог — отправляем HEIC как есть; сервер (heic-convert) переведёт в JPEG. */
+  return file;
 }

@@ -7,6 +7,7 @@ import {
   sheltersForOrderForm,
 } from "@/lib/landing-data";
 import { generatePublicOrderId } from "@/lib/order-id";
+import { prepareImageBufferForUpload } from "@/lib/convert-heic-server";
 import type { GoogleWebhookFilePart } from "@/lib/forward-order-to-google";
 import type { TrackedOrder, TrackedOrderLine } from "@/lib/order-tracking-types";
 
@@ -22,6 +23,7 @@ export type SavedOrderResult = {
   diagnostics?: {
     pendingFilesCount: number;
     pendingTotalBytes: number;
+    heicConvertedCount?: number;
   };
   /** Заполняется при includeWebhookPayload; не зависит от успеха записи на диск (важно для Netlify) */
   googleWebhookPayload?: {
@@ -58,7 +60,14 @@ function printStyleLabel(value: string): string {
   return printStyles.find((p) => p.value === value)?.label ?? value;
 }
 
-type FileBufferEntry = { key: string; file: File; buf: Buffer };
+type FileBufferEntry = {
+  key: string;
+  file: File;
+  buf: Buffer;
+  mimeType: string;
+  fileName: string;
+  convertedFromHeic: boolean;
+};
 
 /**
  * Сохраняет заявку для трекинга (локально / VPS) и готовит payload для Google.
@@ -105,19 +114,33 @@ export async function saveOrderSubmission(
 
   const fileBuffers: FileBufferEntry[] = [];
   let pendingTotalBytes = 0;
+  let heicConvertedCount = 0;
   for (const { key, file } of pendingFiles) {
-    const buf = Buffer.from(await file.arrayBuffer());
-    pendingTotalBytes += buf.byteLength;
-    fileBuffers.push({ key, file, buf });
+    const raw = Buffer.from(await file.arrayBuffer());
+    const prepared = await prepareImageBufferForUpload({
+      buf: raw,
+      mimeType: file.type || "application/octet-stream",
+      fileName: file.name || "photo.jpg",
+    });
+    pendingTotalBytes += prepared.buf.byteLength;
+    if (prepared.convertedFromHeic) heicConvertedCount += 1;
+    fileBuffers.push({
+      key,
+      file,
+      buf: prepared.buf,
+      mimeType: prepared.mimeType,
+      fileName: prepared.fileName,
+      convertedFromHeic: prepared.convertedFromHeic,
+    });
   }
 
   const googleFiles: GoogleWebhookFilePart[] = [];
   if (options?.includeWebhookPayload) {
-    for (const { key, file, buf } of fileBuffers) {
+    for (const { key, buf, mimeType, fileName } of fileBuffers) {
       googleFiles.push({
         field: key,
-        originalName: file.name || "photo",
-        mimeType: file.type || "application/octet-stream",
+        originalName: fileName,
+        mimeType,
         dataBase64: buf.toString("base64"),
       });
     }
@@ -131,8 +154,8 @@ export async function saveOrderSubmission(
     await mkdir(uploadsDir, { recursive: true });
 
     let fileSeq = 0;
-    for (const { key, file, buf } of fileBuffers) {
-      const safeOriginal = (file.name || "file").replace(/[^\w.\-()]/g, "_");
+    for (const { key, buf, mimeType, fileName } of fileBuffers) {
+      const safeOriginal = (fileName || "file").replace(/[^\w.\-()]/g, "_");
       const savedAs = `${fileSeq}_${key.replace(/[^\w[\].-]/g, "_")}_${safeOriginal}`;
       const relativePath = path.posix.join("uploads", savedAs);
       await writeFile(path.join(submissionDir, relativePath), buf);
@@ -140,9 +163,9 @@ export async function saveOrderSubmission(
       filesMeta.push({
         field: key,
         relativePath,
-        originalName: file.name,
-        sizeBytes: file.size,
-        mimeType: file.type || "application/octet-stream",
+        originalName: fileName,
+        sizeBytes: buf.byteLength,
+        mimeType,
       });
 
       const m = key.match(ITEM_KEY_RE);
@@ -257,6 +280,7 @@ export async function saveOrderSubmission(
     diagnostics: {
       pendingFilesCount: pendingFiles.length,
       pendingTotalBytes,
+      heicConvertedCount,
     },
     ...(options?.includeWebhookPayload
       ? { googleWebhookPayload: { order, files: googleFiles } }

@@ -355,6 +355,7 @@ export function OrderForm() {
       linePhotos.some((slots) => (slots?.length ?? 0) > 0);
 
     try {
+      const res = await fetch("/api/order", {
         method: "POST",
         body: formData,
       });
@@ -617,7 +618,9 @@ export function OrderForm() {
                       Выбрано фото: {(linePhotos[index] ?? []).length}
                     </p>
                     <p className="text-xs leading-relaxed text-muted-foreground">
-                      Превью картинки иногда не отображается, но мы все равно увидим ваши файлы
+                      Превью картинки иногда не отображается, но мы все равно увидим ваши файлы.
+                      Фото с iPhone (HEIC) принимаем — на сервере автоматически переводим в JPEG для
+                      Google Диска.
                     </p>
                   </div>
                 ) : (

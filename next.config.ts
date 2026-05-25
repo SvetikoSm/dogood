@@ -3,6 +3,8 @@ import type { NextConfig } from "next";
 const onNetlify = process.env.NETLIFY === "true";
 
 const nextConfig: NextConfig = {
+  /** HEIC→JPEG на сервере (`heic-convert`); не бандлить в webpack. */
+  serverExternalPackages: ["heic-convert"],
   /** VPS/Docker (Timeweb и т.п.): см. `Dockerfile`. Для Netlify при сборке задайте `NETLIFY=true` — тогда без `standalone` (вывод плагину). */
   ...(!onNetlify ? { output: "standalone" as const } : {}),
   images: {
