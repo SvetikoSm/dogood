@@ -364,8 +364,10 @@ export function OrderForm() {
         orderId?: string;
         detail?: string;
         googleWebhook?: "skipped" | "pending" | "ok" | "error";
+        customerNotice?: string;
         googleWebhookWarning?: string;
         googleWebhookError?: string;
+        driveApiPhotoUpload?: { uploaded?: number };
         filesPreparedForGoogle?: number;
         googleWebhookSummaries?: {
           withFiles?: {
@@ -400,41 +402,22 @@ export function OrderForm() {
 
       setLastOrderId(data.orderId ?? null);
 
-      const webhookWarn = data.googleWebhookWarning?.trim();
-      if (data.googleWebhook === "skipped") {
+      const customerMsg = data.customerNotice?.trim();
+      if (customerMsg) {
+        setDoneGoogleNotice(customerMsg);
+      } else if (data.googleWebhook === "skipped") {
         setDoneGoogleNotice(
-          "Отправка в Google Таблицу и Диск на сервере не настроена — заявка принята на сайте. Сохраните номер и напишите нам.",
+          "Заявка принята. Сохраните номер — мы свяжемся с вами по почте.",
         );
-      } else if (data.googleWebhook === "pending") {
-        setDoneGoogleNotice(
-          "Заявка принята. Данные в Google Таблицу и Диск догружаются в фоне — это может занять до 1-2 минут.",
-        );
-      } else if (webhookWarn) {
-        setDoneGoogleNotice(webhookWarn);
       } else {
         setDoneGoogleNotice(null);
       }
 
-      const wf = data.googleWebhookSummaries?.withFiles;
       if (
-        data.googleWebhook === "ok" &&
         hadPhotosForOrder &&
-        (data.filesPreparedForGoogle ?? 0) > 0 &&
-        wf &&
-        (wf.fileCount ?? 0) === 0 &&
-        !wf.duplicateSkipped
+        (data.driveApiPhotoUpload?.uploaded ?? 0) > 0
       ) {
-        const u = wf.uploadErrors?.[0];
-        const hint = u?.error
-          ? `${u.field ?? "файл"}: ${String(u.error).slice(0, 140)}`
-          : wf.driveError
-            ? String(wf.driveError).slice(0, 160)
-            : wf.filesReceived === 0
-              ? "Google не получил вложения (filesReceived=0) — проверьте деплой Apps Script и лимит тела запроса в Nginx."
-              : "";
-        setDoneGoogleNotice(
-          `Заявка ${data.orderId ?? "—"} принята, но в папку Google Диск не попали фото. ${hint ? `Деталь: ${hint} ` : ""}Сохраните номер заказа и напишите нам — пришлите скрин ответа из инструментов разработчика (Network → order).`,
-        );
+        setDoneGoogleNotice(null);
       }
 
       setStatus("done");

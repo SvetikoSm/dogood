@@ -5,7 +5,15 @@ import {
   type GoogleWebhookSummary,
 } from "@/lib/forward-order-to-google";
 import { saveOrderSubmission } from "@/lib/save-order-submission";
-import { uploadOrderPhotosToDriveFolder } from "@/lib/upload-order-photos-to-drive";
+import {
+  customerNoticeWhenPhotosMissing,
+  customerNoticeWhenPhotosPartial,
+} from "@/lib/order-customer-notices";
+import {
+  createOrderFolderViaDriveApi,
+  getOrderDriveParentFolderId,
+  uploadOrderPhotosToDriveFolder,
+} from "@/lib/upload-order-photos-to-drive";
 
 export const maxDuration = 120;
 
@@ -53,6 +61,8 @@ export async function POST(request: Request) {
   let googleWebhookStatus: "skipped" | "ok" | "error" = "skipped";
   let googleWebhookError: string | null = null;
   let googleWebhookWarning: string | null = null;
+  /** Только человеческий текст для экрана «Спасибо за заказ» — без DriveApp и т.п. */
+  let customerNotice: string | null = null;
   let googleWebhookWithFilesSummary: GoogleWebhookSummary | undefined;
   let googleWebhookNoFilesSummary: GoogleWebhookSummary | undefined;
   let driveApiPhotoUpload: {
@@ -77,33 +87,56 @@ export async function POST(request: Request) {
       console.log("[api/order] google webhook ok:", saved.orderId);
 
       const gasFileCount = fwdWithFiles.summary?.fileCount ?? 0;
-      const folderTarget = fwdWithFiles.summary?.folderUrl?.trim() ?? "";
-      if (
-        payload.files.length > 0 &&
-        gasFileCount === 0 &&
-        folderTarget
-      ) {
-        const driveUp = await uploadOrderPhotosToDriveFolder({
-          folderIdOrUrl: folderTarget,
-          files: payload.files,
-        });
-        driveApiPhotoUpload = {
-          uploaded: driveUp.uploaded,
-          ...(driveUp.errors.length ? { errors: driveUp.errors.slice(0, 5) } : {}),
-        };
-        console.log(
-          "[api/order] Drive API photo fallback:",
-          saved.orderId,
-          driveUp.uploaded,
-          "/",
-          payload.files.length,
-          driveUp.errors[0] ?? "",
-        );
-        if (driveUp.uploaded === 0) {
-          googleWebhookWarning =
-            "Заказ в таблице, но фото в папку не загрузились (ни GAS, ни Drive API). Проверьте GOOGLE_SERVICE_ACCOUNT_JSON и доступ сервисного аккаунта к папке заказов.";
-        } else if (driveUp.uploaded < payload.files.length) {
-          googleWebhookWarning = `В папку загружено ${driveUp.uploaded} из ${payload.files.length} фото (часть через Drive API).`;
+      const gasDriveError = fwdWithFiles.summary?.driveError;
+      let folderTarget = fwdWithFiles.summary?.folderUrl?.trim() ?? "";
+
+      if (payload.files.length > 0 && gasFileCount === 0) {
+        if (!folderTarget) {
+          const parentId = getOrderDriveParentFolderId();
+          if (parentId) {
+            const created = await createOrderFolderViaDriveApi(
+              parentId,
+              saved.orderId,
+            );
+            if (created) folderTarget = created.folderUrl;
+          }
+        }
+
+        if (folderTarget) {
+          const driveUp = await uploadOrderPhotosToDriveFolder({
+            folderIdOrUrl: folderTarget,
+            files: payload.files,
+          });
+          driveApiPhotoUpload = {
+            uploaded: driveUp.uploaded,
+            ...(driveUp.errors.length ? { errors: driveUp.errors.slice(0, 5) } : {}),
+          };
+          console.log(
+            "[api/order] Drive API photo fallback:",
+            saved.orderId,
+            "gasDriveError:",
+            gasDriveError ?? "(none)",
+            driveUp.uploaded,
+            "/",
+            payload.files.length,
+            driveUp.errors[0] ?? "",
+          );
+          if (driveUp.uploaded === 0) {
+            googleWebhookWarning =
+              "GAS fileCount=0; Drive API upload failed. Check GOOGLE_SERVICE_ACCOUNT_JSON and folder share.";
+            customerNotice = customerNoticeWhenPhotosMissing(saved.orderId);
+          } else if (driveUp.uploaded < payload.files.length) {
+            googleWebhookWarning = `Drive API: ${driveUp.uploaded}/${payload.files.length} files`;
+            customerNotice = customerNoticeWhenPhotosPartial(
+              saved.orderId,
+              driveUp.uploaded,
+              payload.files.length,
+            );
+          }
+        } else {
+          googleWebhookWarning = `GAS fileCount=0; no folderUrl; driveError=${String(gasDriveError ?? "").slice(0, 200)}`;
+          customerNotice = customerNoticeWhenPhotosMissing(saved.orderId);
+          console.error("[api/order] photo rescue failed:", saved.orderId, googleWebhookWarning);
         }
       }
     } else {
@@ -119,8 +152,11 @@ export async function POST(request: Request) {
         googleWebhookStatus = "ok";
         googleWebhookWarning =
           payload.files.length > 0
-            ? "Заказ принят в Google Таблицу; фото с первой попытки не дошли — сохраните номер заказа, мы свяжемся и догрузим фото."
+            ? "Webhook with files failed; order-only fallback ok"
             : null;
+        if (payload.files.length > 0) {
+          customerNotice = customerNoticeWhenPhotosMissing(saved.orderId);
+        }
         console.warn(
           "[api/order] google webhook degraded (order only):",
           saved.orderId,
@@ -128,8 +164,8 @@ export async function POST(request: Request) {
         );
       } else {
         googleWebhookStatus = "ok";
-        googleWebhookWarning =
-          "Заявка сохранена на сайте, но Google (таблица/Диск) временно недоступен. Сохраните номер заказа — мы обработаем вручную.";
+        googleWebhookWarning = "Google webhook fully failed; order saved on VPS only";
+        customerNotice = customerNoticeWhenPhotosMissing(saved.orderId);
         googleWebhookError = `${fwdWithFiles.error}; fallback(no-files): ${fwdOrderOnly.error}`;
         console.error(
           "[api/order] google webhook failed, order still accepted:",
@@ -185,6 +221,7 @@ export async function POST(request: Request) {
       : {}),
     ...(googleWebhookError ? { googleWebhookError } : {}),
     ...(driveApiPhotoUpload ? { driveApiPhotoUpload } : {}),
+    ...(customerNotice ? { customerNotice } : {}),
     ...(googleWebhookWarning ? { googleWebhookWarning } : {}),
     ...(saved.error ? { warning: "disk_save_failed", detail: saved.error } : {}),
     received: Object.keys(summary),
