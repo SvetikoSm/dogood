@@ -301,17 +301,17 @@ export function OrderForm() {
     setStatus("sending");
     const form = e.currentTarget;
 
+    const compressedCache = new Map<File, File>();
+    async function compressOne(f: File): Promise<File> {
+      const hit = compressedCache.get(f);
+      if (hit) return hit;
+      const c = await compressImageForUpload(f);
+      compressedCache.set(f, c);
+      return c;
+    }
+
     let compressedByLine: File[][];
     try {
-      const compressedCache = new Map<File, File>();
-      async function compressOne(f: File): Promise<File> {
-        const hit = compressedCache.get(f);
-        if (hit) return hit;
-        const c = await compressImageForUpload(f);
-        compressedCache.set(f, c);
-        return c;
-      }
-
       compressedByLine = [];
       for (let i = 0; i < lines.length; i++) {
         const locked = i > 0 && lines[i]!.sameAsPrevious;
