@@ -21,6 +21,7 @@ import {
   compressImageForUpload,
   MAX_ORDER_UPLOAD_BYTES,
 } from "@/lib/compress-order-image";
+import { convertHeicToJpegIfNeeded } from "@/lib/heic-to-jpeg-client";
 
 const fieldClass =
   "mt-1 w-full rounded-2xl border border-fuchsia-200 bg-white px-4 py-3 text-sm text-foreground outline-none transition-shadow placeholder:text-neutral-500 focus:border-dogood-pink focus:ring-2 focus:ring-dogood-pink/25";
@@ -52,18 +53,24 @@ function PhotoThumb({ file, onRemove }: { file: File; onRemove: () => void }) {
   }
 
   useEffect(() => {
+    let cancelled = false;
     setImgHidden(false);
     revokeActive();
 
-    try {
-      const quick = URL.createObjectURL(file);
-      activeBlobRef.current = quick;
-      setUrl(quick);
-    } catch {
-      setUrl(null);
-    }
+    (async () => {
+      try {
+        const forPreview = await convertHeicToJpegIfNeeded(file);
+        if (cancelled) return;
+        const quick = URL.createObjectURL(forPreview);
+        activeBlobRef.current = quick;
+        setUrl(quick);
+      } catch {
+        if (!cancelled) setUrl(null);
+      }
+    })();
 
     return () => {
+      cancelled = true;
       revokeActive();
       setUrl(null);
     };
@@ -339,11 +346,18 @@ export function OrderForm() {
     const formData = new FormData(form);
 
     for (let i = 0; i < lines.length; i++) {
-      const prepared = compressedByLine[i] ?? [];
+      let prepared = compressedByLine[i] ?? [];
       if (!prepared.length) {
-        // Фолбэк: если клиентский стейт фото не обновился, оставляем нативные файлы из формы.
-        continue;
+        // Фолбэк: стейт мог не обновиться (часто iOS), но файлы остались в <input type="file">.
+        const input = document.getElementById(
+          `photo-pick-${lines[i]!.id}`,
+        ) as HTMLInputElement | null;
+        const native = input?.files ? Array.from(input.files) : [];
+        if (native.length) {
+          prepared = await Promise.all(native.map((f) => compressOne(f)));
+        }
       }
+      if (!prepared.length) continue;
       formData.delete(`items[${i}][photos]`);
       for (const file of prepared) {
         formData.append(`items[${i}][photos]`, file);
@@ -565,15 +579,19 @@ export function OrderForm() {
                       accept="image/*"
                       multiple
                       className="sr-only"
-                      onChange={(ev) => {
+                      onChange={async (ev) => {
                         const picked = ev.target.files;
                         if (!picked?.length) return;
+                        const normalized = await Promise.all(
+                          Array.from(picked).map((f) => convertHeicToJpegIfNeeded(f)),
+                        );
                         setLinePhotos((prev) => {
                           const next = prev.map((a) => [...a]);
                           const cur = next[index] ?? [];
-                          const added: PhotoSlot[] = Array.from(picked).map(
-                            (f) => ({ id: newPhotoId(), file: f }),
-                          );
+                          const added: PhotoSlot[] = normalized.map((f) => ({
+                            id: newPhotoId(),
+                            file: f,
+                          }));
                           const merged = [...cur, ...added].slice(
                             0,
                             MAX_PHOTOS_PER_LINE,
