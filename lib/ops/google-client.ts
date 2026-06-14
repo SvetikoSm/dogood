@@ -40,12 +40,14 @@ export function getGoogleOpsClients(): GoogleBundle | null {
   return cached;
 }
 
+import { getStudioSheetTabName, getStudioSpreadsheetId } from "@/lib/studio/config";
+
 export function getSpreadsheetId(): string | undefined {
-  return process.env.GOOGLE_SHEETS_SPREADSHEET_ID?.trim() || undefined;
+  return getStudioSpreadsheetId();
 }
 
 export function getSheetTabName(): string {
-  return process.env.GOOGLE_SHEETS_TAB_NAME?.trim() || "Лист1";
+  return getStudioSheetTabName();
 }
 
 export function getLogisticsSheetTabName(): string {

@@ -5,23 +5,43 @@ import { randomUUID } from "node:crypto";
 
 import { fetchOrderSheetGrid } from "@/lib/ops/sheet-repository";
 import { normalizeStyleId } from "@/lib/ops/style-masters";
+import { STUDIO_SHEET_DEFAULTS } from "@/lib/studio/config";
 import { getStudioDb, schema } from "@/lib/studio/db";
 import { extractDriveFolderId } from "@/lib/studio/google/drive-folder-id";
 import { getEnvRaw } from "@/lib/studio/runtime-env";
 import { inferPetNameScript } from "@/lib/studio/script-detect";
 
 function petNameFromSheetRow(values: Record<string, string>): string {
-  const col = getEnvRaw("STUDIO_SHEET_PET_NAME_COLUMN")?.trim();
-  if (col && values[col]?.trim()) return values[col].trim();
+  const col =
+    getEnvRaw("STUDIO_SHEET_PET_NAME_COLUMN")?.trim() ||
+    STUDIO_SHEET_DEFAULTS.petNameColumn;
+  if (values[col]?.trim()) return values[col].trim();
   const direct = values["pet_name"]?.trim() || values["Pet name"]?.trim();
   if (direct) return direct;
   const futbolki = values["Футболки"] ?? "";
   return futbolki.split("\n")[0]?.trim() ?? "";
 }
 
+function styleFromSheetRow(values: Record<string, string>): string {
+  return (
+    values[STUDIO_SHEET_DEFAULTS.styleColumn]?.trim() ||
+    values["style_id"]?.trim() ||
+    values["Стиль"]?.trim() ||
+    ""
+  );
+}
+
+function isProcessableSheetRow(values: Record<string, string>): boolean {
+  const orderId = values[STUDIO_SHEET_DEFAULTS.orderIdColumn]?.trim() ?? "";
+  if (!orderId || orderId.toLowerCase().startsWith("add-on")) return false;
+  const folder = values[STUDIO_SHEET_DEFAULTS.driveFolderColumn]?.trim() ?? "";
+  const photoLinks = values["Ссылки на фото"]?.trim() ?? "";
+  return Boolean(folder || photoLinks);
+}
+
 /**
- * Upsert orders from the same Google Sheet used by ops (`fetchOrderSheetGrid`).
- * Fills `studio_orders` for the internal Studio dashboard.
+ * Upsert orders from the Google Sheet (`fetchOrderSheetGrid`).
+ * Skips add-on rows and rows without a photo folder or photo links.
  */
 export async function syncStudioOrdersFromGoogleSheet(): Promise<{
   ok: true;
@@ -37,19 +57,22 @@ export async function syncStudioOrdersFromGoogleSheet(): Promise<{
   let n = 0;
   for (const row of grid.rows) {
     const v = row.values;
-    const sheetOrderId = v["Order ID"]?.trim() ?? "";
+    if (!isProcessableSheetRow(v)) continue;
+
+    const sheetOrderId = v[STUDIO_SHEET_DEFAULTS.orderIdColumn]?.trim() ?? "";
     if (!sheetOrderId) continue;
 
     const customerName = v["Имя"]?.trim() ?? "";
     const petNameRaw = petNameFromSheetRow(v);
-    const styleRaw = v["style_id"]?.trim() ?? "";
-    const designSlug =
-      normalizeStyleId(styleRaw) ?? (styleRaw.trim().toLowerCase() || "speed");
-    const driveFolderUrl = v["Папка с фото"]?.trim() ?? "";
+    const styleRaw = styleFromSheetRow(v);
+    const normalized = normalizeStyleId(styleRaw);
+    if (!normalized) continue;
+
+    const driveFolderUrl = v[STUDIO_SHEET_DEFAULTS.driveFolderColumn]?.trim() ?? "";
     const driveFolderId = extractDriveFolderId(driveFolderUrl);
 
     const existing = await db
-      .select({ id: schema.studioOrders.id })
+      .select({ id: schema.studioOrders.id, status: schema.studioOrders.status })
       .from(schema.studioOrders)
       .where(eq(schema.studioOrders.sheetOrderId, sheetOrderId))
       .get();
@@ -64,7 +87,7 @@ export async function syncStudioOrdersFromGoogleSheet(): Promise<{
           customerName,
           petNameRaw,
           petNameScript,
-          designSlug,
+          designSlug: normalized,
           driveFolderUrl,
           driveFolderId,
           sheetPayloadJson,
@@ -78,7 +101,7 @@ export async function syncStudioOrdersFromGoogleSheet(): Promise<{
         customerName,
         petNameRaw,
         petNameScript,
-        designSlug,
+        designSlug: normalized,
         driveFolderUrl,
         driveFolderId,
         status: "new",

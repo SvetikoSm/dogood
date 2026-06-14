@@ -67,6 +67,10 @@ export const studioOrders = sqliteTable(
     approvedDogArtifactPath: text("approved_dog_artifact_path").notNull().default(""),
     approvedTextArtifactPath: text("approved_text_artifact_path").notNull().default(""),
     approvedFinalArtifactPath: text("approved_final_artifact_path").notNull().default(""),
+    /** Last stage we sent to Telegram (dog|text|final) to avoid duplicate pings */
+    reviewNotifiedFor: text("review_notified_for").notNull().default(""),
+    /** Latest human reject note from Telegram (used for next correction prompt) */
+    humanRejectNote: text("human_reject_note").notNull().default(""),
     /** Snapshot of sheet row for debugging / re-sync */
     sheetPayloadJson: text("sheet_payload_json").notNull().default("{}"),
     createdAt: integer("created_at", { mode: "timestamp" })

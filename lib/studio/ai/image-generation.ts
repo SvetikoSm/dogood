@@ -37,6 +37,41 @@ async function readFileAsDataUrl(abs: string): Promise<string | null> {
   }
 }
 
+function extractImageFromOpenRouterResponse(raw: string): Buffer | null {
+  try {
+    const j = JSON.parse(raw) as {
+      choices?: {
+        message?: {
+          content?: string;
+          images?: { image_url?: { url?: string }; imageUrl?: { url?: string } }[];
+        };
+      }[];
+    };
+    const msg = j.choices?.[0]?.message;
+    const images = msg?.images ?? [];
+    const first = images[0];
+    const url =
+      first?.image_url?.url ||
+      first?.imageUrl?.url ||
+      (typeof msg?.content === "string"
+        ? msg.content.match(/data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+/)?.[0]
+        : undefined);
+    if (url) {
+      const m = String(url).match(/^data:([^;]+);base64,(.+)$/);
+      if (m?.[2]) {
+        try {
+          return Buffer.from(m[2], "base64");
+        } catch {
+          /* fall through */
+        }
+      }
+    }
+    const assistant = msg?.content ?? "";
+    return extractBase64ImageFromAssistantText(assistant);
+  } catch {
+    return extractBase64ImageFromAssistantText(raw);
+  }
+}
 function extractBase64ImageFromAssistantText(text: string): Buffer | null {
   const data = text.match(/data:image\/(?:png|jpeg|webp);base64,([A-Za-z0-9+/=]+)/);
   if (data?.[1]) {
@@ -46,9 +81,7 @@ function extractBase64ImageFromAssistantText(text: string): Buffer | null {
       return null;
     }
   }
-  const fence = text.match(
-    /```(?:png|image)?\s*([\s\S]*?)```/i,
-  );
+  const fence = text.match(/```(?:png|image)?\s*([\s\S]*?)```/i);
   if (fence?.[1]?.includes("base64,")) {
     const inner = fence[1].match(/base64,([A-Za-z0-9+/=]+)/);
     if (inner?.[1]) {
@@ -138,6 +171,7 @@ export async function generateStudioImage(input: ImageGenInput): Promise<ImageGe
       },
       body: JSON.stringify({
         model,
+        modalities: ["image", "text"],
         messages: [{ role: "user", content }],
         max_tokens: 8192,
       }),
@@ -146,11 +180,7 @@ export async function generateStudioImage(input: ImageGenInput): Promise<ImageGe
     if (!res.ok) {
       return { ok: false, error: `OpenRouter image HTTP ${res.status}: ${raw.slice(0, 400)}` };
     }
-    const j = JSON.parse(raw) as {
-      choices?: { message?: { content?: string } }[];
-    };
-    const assistant = j.choices?.[0]?.message?.content ?? "";
-    const buf = extractBase64ImageFromAssistantText(assistant);
+    const buf = extractImageFromOpenRouterResponse(raw);
     if (!buf) {
       return {
         ok: false,

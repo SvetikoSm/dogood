@@ -5,6 +5,7 @@ import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 
 import { getStudioDb, schema } from "@/lib/studio/db";
+import { uploadStudioArtifactToFolder } from "@/lib/studio/google/upload-artifact";
 import { latestSuccessfulStepRun } from "@/lib/studio/pipeline/step-queries";
 import { STUDIO_STEP_KEYS } from "@/lib/studio/step-keys";
 
@@ -58,6 +59,17 @@ export async function approveDogStage(orderId: string): Promise<
   await logHuman(orderId, "dog", STUDIO_STEP_KEYS.HUMAN_APPROVE_DOG, {
     artifact: row.outputArtifactPath,
   });
+  const [orderRow] = await db.select().from(schema.studioOrders).where(eq(schema.studioOrders.id, orderId)).limit(1);
+  if (orderRow?.petNameRaw) {
+    const up = await uploadStudioArtifactToFolder({
+      studioRelativePath: row.outputArtifactPath,
+      folderKey: "approved",
+      fileBaseName: orderRow.petNameRaw,
+    });
+    if (!up.ok) {
+      console.error("[approveDogStage] drive upload:", up.error);
+    }
+  }
   return { ok: true };
 }
 
@@ -101,6 +113,15 @@ export async function approveTextStage(orderId: string): Promise<
   await logHuman(orderId, "text", STUDIO_STEP_KEYS.HUMAN_APPROVE_TEXT, {
     artifact: row.outputArtifactPath,
   });
+  const [orderRow] = await db.select().from(schema.studioOrders).where(eq(schema.studioOrders.id, orderId)).limit(1);
+  if (orderRow?.petNameRaw) {
+    const up = await uploadStudioArtifactToFolder({
+      studioRelativePath: row.outputArtifactPath,
+      folderKey: "textBadges",
+      fileBaseName: orderRow.petNameRaw,
+    });
+    if (!up.ok) console.error("[approveTextStage] drive upload:", up.error);
+  }
   return { ok: true };
 }
 
@@ -144,6 +165,15 @@ export async function approveFinalStage(orderId: string): Promise<
   await logHuman(orderId, "final", STUDIO_STEP_KEYS.HUMAN_APPROVE_FINAL, {
     artifact: row.outputArtifactPath,
   });
+  const [orderRow] = await db.select().from(schema.studioOrders).where(eq(schema.studioOrders.id, orderId)).limit(1);
+  if (orderRow?.petNameRaw) {
+    const up = await uploadStudioArtifactToFolder({
+      studioRelativePath: row.outputArtifactPath,
+      folderKey: "approved",
+      fileBaseName: `${orderRow.petNameRaw}_final`,
+    });
+    if (!up.ok) console.error("[approveFinalStage] drive upload:", up.error);
+  }
   return { ok: true };
 }
 

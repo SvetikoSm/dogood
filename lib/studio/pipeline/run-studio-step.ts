@@ -279,10 +279,19 @@ export async function runStudioStep(
   }
 
   if (stepKey === STUDIO_STEP_KEYS.DOG_IMG_V2_CORRECTION) {
-    const env = await envelopeFromLatestStep(orderId, [STUDIO_STEP_KEYS.DOG_LLM_CRITIQUE]);
-    const prompt = env?.prompt?.trim();
+    let prompt = "";
+    if (order.humanRejectNote?.trim()) {
+      prompt = order.humanRejectNote.trim();
+      await db
+        .update(schema.studioOrders)
+        .set({ humanRejectNote: "", updatedAt: new Date() })
+        .where(eq(schema.studioOrders.id, orderId));
+    } else {
+      const env = await envelopeFromLatestStep(orderId, [STUDIO_STEP_KEYS.DOG_LLM_CRITIQUE]);
+      prompt = env?.prompt?.trim() ?? "";
+    }
     if (!prompt) {
-      return { ok: false, error: "Run dog critique LLM first" };
+      return { ok: false, error: "Run dog critique LLM first or provide human reject note" };
     }
     const imgRow = await latestSuccessfulStepRun(orderId, [
       STUDIO_STEP_KEYS.DOG_IMG_V1,
@@ -473,9 +482,18 @@ export async function runStudioStep(
     if (!order.approvedDogArtifactPath?.trim()) {
       return { ok: false, error: "Approve dog stage first" };
     }
-    const env = await envelopeFromLatestStep(orderId, [STUDIO_STEP_KEYS.TEXT_LLM_CRITIQUE]);
-    const prompt = env?.prompt?.trim();
-    if (!prompt) return { ok: false, error: "Run text critique LLM first" };
+    let prompt = "";
+    if (order.humanRejectNote?.trim()) {
+      prompt = order.humanRejectNote.trim();
+      await db
+        .update(schema.studioOrders)
+        .set({ humanRejectNote: "", updatedAt: new Date() })
+        .where(eq(schema.studioOrders.id, orderId));
+    } else {
+      const env = await envelopeFromLatestStep(orderId, [STUDIO_STEP_KEYS.TEXT_LLM_CRITIQUE]);
+      prompt = env?.prompt?.trim() ?? "";
+    }
+    if (!prompt) return { ok: false, error: "Run text critique LLM first or provide human reject note" };
     const imgRow = await latestSuccessfulStepRun(orderId, [STUDIO_STEP_KEYS.TEXT_IMG_V1]);
     const refs = [tpl.textStyleRefAbs];
     if (imgRow?.outputArtifactPath) refs.push(absoluteFromStudioRelative(imgRow.outputArtifactPath));
