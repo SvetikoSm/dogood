@@ -1,41 +1,25 @@
-import { catalogDesignTemplates, printStyles } from "@/lib/landing-data";
+import { printStyles } from "@/lib/landing-data";
 
 /**
- * Превью стилей в форме заказа: сначала файлы из `public/products`, которые реально есть в репозитории,
- * затем опциональные `public/order-form-styles`, в конце — внешний URL с витрины (Unsplash и т.д.).
- * Так превью не зависят от CDN и не «проматывают» десятки 404 на медленном канале.
+ * Превью стилей в форме заказа.
+ * Файлы: `public/order-form-styles/{life|speed|rainy}/2.png` (или 2.jpg).
  */
-const localProductPreviews: Record<string, readonly string[]> = {
-  life: ["/products/life/3.jpg", "/products/life/4.jpg"],
-  speed: ["/products/speed/3.jpg", "/products/speed/4.png"],
-  rainy: [
-    "/products/rainy/main.png",
-    "/products/rainy/3.jpg",
-    "/products/rainy/4.jpg",
-  ],
+export const ORDER_FORM_STYLE_PREVIEW_BY_ID: Record<string, string> = {
+  life: "/order-form-styles/life/2.png",
+  speed: "/order-form-styles/speed/2.png",
+  rainy: "/order-form-styles/rainy/2.png",
 };
 
-function optionalOrderFormStyleFiles(styleId: string): string[] {
-  return [
-    `/order-form-styles/${styleId}/2.webp`,
-    `/order-form-styles/${styleId}/2.jpg`,
-    `/order-form-styles/${styleId}/2.png`,
-  ];
+export function getOrderFormPreviewUrl(styleId: string): string {
+  return ORDER_FORM_STYLE_PREVIEW_BY_ID[styleId] ?? "";
 }
 
-function catalogFallbackUrl(styleId: string): string {
-  const design = catalogDesignTemplates.find((d) => d.id === styleId);
-  return design?.gallery[0] ?? design?.imageMain ?? "";
-}
-
+/** @deprecated используйте getOrderFormPreviewUrl */
 export function getOrderFormPreviewCandidatesByStyle(): Record<string, string[]> {
   const out: Record<string, string[]> = {};
   for (const { value } of printStyles) {
-    const locals = localProductPreviews[value] ?? [];
-    const remote = catalogFallbackUrl(value);
-    out[value] = Array.from(
-      new Set([...locals, ...optionalOrderFormStyleFiles(value), remote].filter(Boolean)),
-    );
+    const url = getOrderFormPreviewUrl(value);
+    out[value] = url ? [url] : [];
   }
   return out;
 }

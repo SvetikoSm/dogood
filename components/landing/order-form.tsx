@@ -1,7 +1,7 @@
 "use client";
 
 import type { FormEvent } from "react";
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import Link from "next/link";
 import { DogoodButton } from "@/components/ui/dogood-button";
 import { ImageLightbox } from "@/components/ui/image-lightbox";
@@ -15,7 +15,7 @@ import {
   shirtSizes,
   sheltersForOrderForm,
 } from "@/lib/landing-data";
-import { getOrderFormPreviewCandidatesByStyle } from "@/lib/order-form-style-previews";
+import { getOrderFormPreviewUrl } from "@/lib/order-form-style-previews";
 import { Image as ImageIcon } from "lucide-react";
 import {
   compressImageForUpload,
@@ -111,7 +111,6 @@ export type OrderLineState = {
   id: string;
   sameAsPrevious: boolean;
   dogName: string;
-  breed: string;
   printStyle: string;
   gender: string;
   size: string;
@@ -124,7 +123,6 @@ function createLine(): OrderLineState {
     id: typeof crypto !== "undefined" ? crypto.randomUUID() : String(Math.random()),
     sameAsPrevious: false,
     dogName: "",
-    breed: "",
     printStyle: printStyles[0]!.value,
     gender: shirtGenders[0]!.value,
     size: shirtSizes[1]!.value,
@@ -157,7 +155,6 @@ export function OrderForm() {
     zoneLabel: string;
     note: string;
   } | null>(null);
-  const [previewAttempt, setPreviewAttempt] = useState<Record<string, number>>({});
   const [lightboxSrc, setLightboxSrc] = useState("");
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lines, setLines] = useState<OrderLineState[]>([createLine()]);
@@ -217,11 +214,6 @@ export function OrderForm() {
       return prev.slice(0, lines.length);
     });
   }, [lines.length]);
-
-  const previewCandidatesByStyle = useMemo(
-    () => getOrderFormPreviewCandidatesByStyle(),
-    [],
-  );
 
   const updateLine = useCallback(
     (index: number, patch: Partial<OrderLineState>) => {
@@ -532,7 +524,6 @@ export function OrderForm() {
                         updateLine(index, {
                           sameAsPrevious: true,
                           dogName: prev.dogName,
-                          breed: prev.breed,
                           printStyle: prev.printStyle,
                           gender: prev.gender,
                           size: prev.size,
@@ -545,7 +536,7 @@ export function OrderForm() {
                     }}
                     className="rounded border-fuchsia-200"
                   />
-                  Как на предыдущей футболке (кличка, порода, стиль, пол, размер, цвет, фото)
+                  Как на предыдущей футболке (кличка, стиль, пол, размер, цвет, фото)
                 </label>
               ) : null}
 
@@ -611,11 +602,6 @@ export function OrderForm() {
                     <p className="text-xs text-muted-foreground">
                       Выбрано фото: {(linePhotos[index] ?? []).length}
                     </p>
-                    <p className="text-xs leading-relaxed text-muted-foreground">
-                      Превью картинки иногда не отображается, но мы все равно увидим ваши файлы.
-                      Фото с iPhone (HEIC) принимаем — на сервере автоматически переводим в JPEG для
-                      Google Диска.
-                    </p>
                   </div>
                 ) : (
                   <>
@@ -642,7 +628,7 @@ export function OrderForm() {
                     </label>
                     <p className="mb-1.5 text-xs text-muted-foreground">
                       Напишите само имя питомца так, как его печатать на футболке (кириллица или
-                      латиница — как вам нужно). Это не выбор «языка интерфейса».
+                      латиница — как вам нравится больше).
                     </p>
                     <input
                       id={`${baseId}-dog-${index}`}
@@ -656,29 +642,6 @@ export function OrderForm() {
                       className={fieldClass}
                       placeholder="Например: Макс, Барни или Luna"
                     />
-                  </div>
-
-                  <div>
-                    <label
-                      className={labelClass}
-                      htmlFor={`${baseId}-breed-${index}`}
-                    >
-                      Порода
-                    </label>
-                    <input
-                      id={`${baseId}-breed-${index}`}
-                      name={`items[${index}][breed]`}
-                      value={line.breed}
-                      onChange={(e) =>
-                        updateLine(index, { breed: e.target.value })
-                      }
-                      className={fieldClass}
-                      placeholder="Необязательно"
-                    />
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      Необязательно, но так мы ориентируемся на типичные черты
-                      породы или вида, если визуала мало.
-                    </p>
                   </div>
 
                   <div className="grid gap-5 sm:grid-cols-2">
@@ -742,9 +705,7 @@ export function OrderForm() {
                       <div className="mt-2 grid grid-cols-3 gap-2 sm:gap-3">
                         {printStyles.map((s) => {
                           const selected = line.printStyle === s.value;
-                          const variants = previewCandidatesByStyle[s.value] ?? [];
-                          const idx = previewAttempt[s.value] ?? 0;
-                          const previewSrc = variants[Math.min(idx, variants.length - 1)] ?? "";
+                          const previewSrc = getOrderFormPreviewUrl(s.value);
                           return (
                             <label
                               key={s.value}
@@ -765,29 +726,12 @@ export function OrderForm() {
                                 }
                                 className="sr-only"
                               />
-                              <div className="relative mb-2 aspect-square overflow-hidden rounded-xl">
+                              <div className="relative mb-2 aspect-square overflow-hidden rounded-xl bg-white">
                                 {/* eslint-disable-next-line @next/next/no-img-element */}
                                 <img
-                                  key={`${s.value}-${idx}`}
                                   src={previewSrc}
                                   alt={s.label}
-                                  className="h-full w-full object-cover transition-transform duration-300 hover:scale-105"
-                                  referrerPolicy={
-                                    previewSrc.startsWith("http")
-                                      ? "no-referrer"
-                                      : undefined
-                                  }
-                                  onError={() => {
-                                    setPreviewAttempt((prev) => {
-                                      const current = prev[s.value] ?? 0;
-                                      const variantsLen =
-                                        previewCandidatesByStyle[s.value]?.length ?? 0;
-                                      if (current + 1 >= variantsLen) {
-                                        return prev;
-                                      }
-                                      return { ...prev, [s.value]: current + 1 };
-                                    });
-                                  }}
+                                  className="h-full w-full object-contain p-1"
                                 />
                                 <button
                                   type="button"
@@ -903,11 +847,6 @@ export function OrderForm() {
                     type="hidden"
                     name={`items[${index}][dogName]`}
                     value={prev!.dogName}
-                  />
-                  <input
-                    type="hidden"
-                    name={`items[${index}][breed]`}
-                    value={prev!.breed}
                   />
                   <input
                     type="hidden"

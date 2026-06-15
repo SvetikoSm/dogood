@@ -1,15 +1,16 @@
-Order form style images
-=======================
+Макеты превью в форме заказа (блок «Стиль принта»)
+==================================================
 
-Put style preview photos for the order form here:
+Положите файл с именем **2** в каждую папку:
 
-- public/order-form-styles/speed/2.jpg  -> "Я — скорость"
-- public/order-form-styles/rainy/2.jpg  -> "No rainy days"
-- public/order-form-styles/life/2.jpg   -> "Life is better"
+  public/order-form-styles/life/2.png   → «Life is better»
+  public/order-form-styles/speed/2.png  → «Я — скорость»
+  public/order-form-styles/rainy/2.png  → «No rainy days»
 
-Recommended image:
-- square crop
-- at least 800x800
-- jpg or webp
+Допустимы расширения: .png, .jpg, .webp (в коде сейчас .png).
 
-If a local file is missing, the site falls back to existing catalog/demo images.
+После замены файлов на сервере: git push + docker build (см. DEPLOY-TIMEWEB.md).
+
+Проверка в браузере:
+  https://dogood-brand.ru/order-form-styles/life/2.png
+  (должна открыться картинка, не 404)
