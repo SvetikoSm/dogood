@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Manrope, Oswald } from "next/font/google";
+import { YandexMetrika } from "@/components/analytics/yandex-metrika";
 import "./globals.css";
 
 const manrope = Manrope({
@@ -38,6 +39,7 @@ export default function RootLayout({
       className={`${manrope.variable} ${oswald.variable} h-full antialiased`}
     >
       <body className="flex min-h-full flex-col bg-background text-foreground antialiased">
+        <YandexMetrika />
         {children}
       </body>
     </html>

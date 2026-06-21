@@ -22,6 +22,10 @@ import {
   MAX_ORDER_UPLOAD_BYTES,
 } from "@/lib/compress-order-image";
 import { convertHeicToJpegIfNeeded } from "@/lib/heic-to-jpeg-client";
+import {
+  reachYandexGoal,
+  YM_GOAL_ORDER_SUBMIT,
+} from "@/lib/analytics/yandex-metrika";
 
 const fieldClass =
   "mt-1 w-full rounded-2xl border border-fuchsia-200 bg-white px-4 py-3 text-sm text-foreground outline-none transition-shadow placeholder:text-neutral-500 focus:border-dogood-pink focus:ring-2 focus:ring-dogood-pink/25";
@@ -359,6 +363,8 @@ export function OrderForm() {
     const hadPhotosForOrder =
       compressedByLine.some((a) => (a?.length ?? 0) > 0) ||
       linePhotos.some((slots) => (slots?.length ?? 0) > 0);
+
+    reachYandexGoal(YM_GOAL_ORDER_SUBMIT);
 
     try {
       const res = await fetch("/api/order", {
