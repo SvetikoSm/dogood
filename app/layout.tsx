@@ -1,6 +1,9 @@
 import type { Metadata } from "next";
 import { Manrope, Oswald } from "next/font/google";
-import { YandexMetrika } from "@/components/analytics/yandex-metrika";
+import {
+  getYandexMetrikaCounterId,
+  yandexMetrikaHeadScript,
+} from "@/lib/analytics/yandex-metrika";
 import "./globals.css";
 
 const manrope = Manrope({
@@ -33,13 +36,35 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const ymCounterId = getYandexMetrikaCounterId();
+
   return (
     <html
       lang="ru"
       className={`${manrope.variable} ${oswald.variable} h-full antialiased`}
     >
+      <head>
+        {ymCounterId ? (
+          <script
+            dangerouslySetInnerHTML={{
+              __html: yandexMetrikaHeadScript(ymCounterId),
+            }}
+          />
+        ) : null}
+      </head>
       <body className="flex min-h-full flex-col bg-background text-foreground antialiased">
-        <YandexMetrika />
+        {ymCounterId ? (
+          <noscript>
+            <div>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={`https://mc.yandex.ru/watch/${ymCounterId}`}
+                style={{ position: "absolute", left: "-9999px" }}
+                alt=""
+              />
+            </div>
+          </noscript>
+        ) : null}
         {children}
       </body>
     </html>
