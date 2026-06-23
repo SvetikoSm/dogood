@@ -61,10 +61,13 @@ export function ProductImageCarousel({
 
   const onTouchMove = (e: React.TouchEvent) => {
     if (touchStartX.current === null || touchStartY.current === null) return;
-    const dx = Math.abs(e.touches[0].clientX - touchStartX.current);
-    const dy = Math.abs(e.touches[0].clientY - touchStartY.current);
-    // Горизонтальный жест считаем свайпом; подавляем "tap-to-open".
-    if (dx > 10 && dx > dy) suppressTapOpen.current = true;
+    const dx = e.touches[0].clientX - touchStartX.current;
+    const dy = e.touches[0].clientY - touchStartY.current;
+    // Горизонтальный жест — свайп карусели; блокируем прокрутку страницы.
+    if (Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy)) {
+      suppressTapOpen.current = true;
+      e.preventDefault();
+    }
   };
 
   const onTouchEnd = (e: React.TouchEvent) => {
@@ -72,8 +75,8 @@ export function ProductImageCarousel({
     const dx = e.changedTouches[0].clientX - touchStartX.current;
     touchStartX.current = null;
     touchStartY.current = null;
-    if (dx > 48) go(-1);
-    else if (dx < -48) go(1);
+    if (dx > 36) go(-1);
+    else if (dx < -36) go(1);
   };
 
   if (n === 0) return null;
@@ -81,7 +84,7 @@ export function ProductImageCarousel({
   return (
     <div className="flex w-full flex-col gap-3">
       <div
-        className="relative aspect-[4/5] w-full overflow-hidden rounded-xl bg-white touch-pan-y"
+        className="relative aspect-[4/5] w-full touch-manipulation overflow-hidden rounded-xl bg-white [touch-action:pan-x_pinch-zoom]"
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
@@ -127,6 +130,7 @@ export function ProductImageCarousel({
                   sizes="(max-width: 1024px) 100vw, 50vw"
                   unoptimized
                   priority={priority && idx === 0}
+                  draggable={false}
                 />
               </button>
             </div>

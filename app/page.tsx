@@ -1,3 +1,5 @@
+import dynamic from "next/dynamic";
+
 import { About } from "@/components/landing/about";
 import Catalog from "@/components/landing/catalog";
 import { Faq } from "@/components/landing/faq";
@@ -6,11 +8,25 @@ import { GoodDeed } from "@/components/landing/good-deed";
 import { Header } from "@/components/landing/header";
 import { Hero } from "@/components/landing/hero";
 import { HowItWorks } from "@/components/landing/how-it-works";
-import { OrderForm } from "@/components/landing/order-form";
 import { ProductBenefits } from "@/components/landing/product-benefits";
 import { Reviews } from "@/components/landing/reviews";
 import { Shelters } from "@/components/landing/shelters";
 import { MobileAccordionSection } from "@/components/ui/mobile-accordion-section";
+
+const OrderForm = dynamic(
+  () =>
+    import("@/components/landing/order-form").then((mod) => mod.OrderForm),
+  {
+    loading: () => (
+      <section
+        id="order"
+        className="mx-auto w-full max-w-6xl px-4 py-16 sm:px-6 lg:px-8"
+        aria-busy="true"
+        aria-label="Загрузка формы заказа"
+      />
+    ),
+  },
+);
 
 export default function Home() {
   return (
