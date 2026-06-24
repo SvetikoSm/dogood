@@ -43,7 +43,7 @@ export function CatalogFeature({ designs }: { designs: CatalogDesign[] }) {
   const nextTab = tabs[(activeIndex + 1) % tabs.length];
 
   return (
-    <Tabs.Root value={activeTab} onValueChange={setActiveTab} className="relative z-10 w-full">
+    <Tabs.Root value={activeTab} onValueChange={setActiveTab} className="relative z-10 w-full min-w-0 max-w-full overflow-hidden">
       <Tabs.List
         className="grid w-full gap-1.5 sm:gap-3"
         style={{
@@ -63,14 +63,14 @@ export function CatalogFeature({ designs }: { designs: CatalogDesign[] }) {
         ))}
       </Tabs.List>
 
-      <div className="relative z-10 mt-8 rounded-2xl border border-fuchsia-200 bg-white/80 p-5 shadow-[0_18px_50px_rgba(244,114,182,0.12)] sm:p-8 lg:p-12">
+      <div className="relative z-10 mt-8 w-full min-w-0 max-w-full overflow-hidden rounded-2xl border border-fuchsia-200 bg-white/80 p-5 shadow-[0_18px_50px_rgba(244,114,182,0.12)] sm:p-8 lg:p-12">
         {tabs.map((tab) => (
           <Tabs.Content
             key={tab.value}
             value={tab.value}
             className="outline-none data-[state=inactive]:hidden"
           >
-            <div className="grid min-w-0 gap-10 lg:grid-cols-2 lg:gap-12">
+            <div className="grid w-full min-w-0 max-w-full grid-cols-1 gap-10 lg:grid-cols-2 lg:gap-12">
               <div className="flex min-w-0 flex-col gap-4 lg:gap-5">
                 <Badge variant="outline" className="w-fit border-fuchsia-200 bg-white">
                   {tab.design.priceRub.toLocaleString("ru-RU")} ₽

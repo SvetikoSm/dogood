@@ -32,7 +32,7 @@ export default function Home() {
   return (
     <>
       <Header />
-      <main className="site-color-bg flex-1">
+      <main className="site-color-bg flex-1 overflow-x-hidden">
         <Hero />
         <Catalog />
         <MobileAccordionSection title="Как это работает">

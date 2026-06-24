@@ -8,7 +8,7 @@ import { GradientWave } from "@/components/ui/gradient-wave";
 
 export function HeroSection01() {
   return (
-    <div className="relative flex min-h-[98vh] w-full items-center justify-center overflow-hidden rounded-[2rem] border border-white/50 bg-white/40 px-4 py-16 shadow-[0_30px_120px_rgba(236,72,153,0.2)] backdrop-blur-md sm:min-h-[104vh] sm:px-8 lg:min-h-[108vh]">
+    <div className="relative flex min-h-[98vh] w-full max-w-full min-w-0 items-center justify-center overflow-hidden rounded-[2rem] border border-white/50 bg-white/40 px-4 py-16 shadow-[0_30px_120px_rgba(236,72,153,0.2)] backdrop-blur-md sm:min-h-[104vh] sm:px-8 lg:min-h-[108vh]">
       {/*
         На телефонах и планшетах WebGL-фон тяжёлый — статичный градиент. С lg и выше — GradientWave.
       */}
