@@ -107,6 +107,44 @@ sudo nginx -t && sudo systemctl reload nginx
 | `Already up to date`, но сайт старый | Убедиться, что `git push` с ПК прошёл; на сервере `git log -1` |
 | Куча `command not found` после команд | В терминал попали **строки из лога** — не вставлять лог целиком, только команды |
 | Нет `Dockerfile` после `git clone` | В `main` должен быть деплой-коммит; на ПК `git push` |
+| Safari на телефоне: «server stopped responding» | См. раздел **Мобильный Safari** ниже |
+
+---
+
+## Мобильный Safari не открывает сайт
+
+**Симптом:** на компе открывается (медленно), на iPhone — «server stopped responding» или «кривая» страница без стилей.
+
+**Причина:** не CSS, а **HTTPS/nginx на VPS** — соединение обрывается, Safari не дожидается всех файлов.
+
+### 1. Диагностика на сервере (SSH)
+
+```bash
+docker ps --filter name=dogood
+docker logs dogood --tail 40
+free -h
+df -h /
+sudo tail -30 /var/log/nginx/error.log
+curl -sI http://127.0.0.1:3000 | head -3
+curl -sI https://dogood-brand.ru | head -3
+```
+
+### 2. Обновить nginx (SSL + gzip)
+
+Откройте конфиг сайта (`/etc/nginx/sites-available/dogood`) и добавьте блоки из `deploy/nginx-dogood.conf.example` (секции `ssl_protocols`, `gzip`, `proxy_*`).
+
+```bash
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+### 3. Пересобрать приложение
+
+```bash
+cd /opt/dogood && git pull origin main
+docker build -t dogood-v2 .
+docker stop dogood; docker rm dogood
+docker run -d --name dogood --restart unless-stopped -p 127.0.0.1:3000:3000 --env-file .env.production -v dogood_data:/app/data dogood-v2
+```
 
 ---
 

@@ -1,7 +1,6 @@
 import dynamic from "next/dynamic";
 
 import { About } from "@/components/landing/about";
-import Catalog from "@/components/landing/catalog";
 import { Faq } from "@/components/landing/faq";
 import { Footer } from "@/components/landing/footer";
 import { GoodDeed } from "@/components/landing/good-deed";
@@ -12,6 +11,17 @@ import { ProductBenefits } from "@/components/landing/product-benefits";
 import { Reviews } from "@/components/landing/reviews";
 import { Shelters } from "@/components/landing/shelters";
 import { MobileAccordionSection } from "@/components/ui/mobile-accordion-section";
+
+const Catalog = dynamic(() => import("@/components/landing/catalog"), {
+  loading: () => (
+    <section
+      id="catalog"
+      className="mx-auto w-full max-w-6xl scroll-mt-24 px-4 py-16 sm:px-6 lg:px-8"
+      aria-busy="true"
+      aria-label="Загрузка каталога"
+    />
+  ),
+});
 
 const OrderForm = dynamic(
   () =>
