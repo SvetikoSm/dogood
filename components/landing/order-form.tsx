@@ -145,6 +145,7 @@ export function OrderForm() {
   const SHIRT_PRICE_RUB = 3999;
   const NETWORK_HINT_THRESHOLD = 2;
   const FETCH_TIMEOUT_MS = 12000;
+  const ORDER_SUBMIT_TIMEOUT_MS = 90000;
   const baseId = useId();
   const [status, setStatus] = useState<"idle" | "sending" | "done" | "error">(
     "idle",
@@ -186,9 +187,10 @@ export function OrderForm() {
   async function fetchWithTimeout(
     input: RequestInfo | URL,
     init?: RequestInit,
+    timeoutMs = FETCH_TIMEOUT_MS,
   ): Promise<Response> {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
     try {
       return await fetch(input, { ...init, signal: controller.signal });
     } finally {
@@ -367,10 +369,14 @@ export function OrderForm() {
     reachYandexGoal(YM_GOAL_ORDER_SUBMIT);
 
     try {
-      const res = await fetch("/api/order", {
-        method: "POST",
-        body: formData,
-      });
+      const res = await fetchWithTimeout(
+        "/api/order",
+        {
+          method: "POST",
+          body: formData,
+        },
+        ORDER_SUBMIT_TIMEOUT_MS,
+      );
       const raw = await res.text();
       let data: {
         orderId?: string;
@@ -437,9 +443,14 @@ export function OrderForm() {
       form.reset();
       setLines([createLine()]);
       setLinePhotos([[]]);
-    } catch {
+    } catch (err) {
       setStatus("error");
-      setSubmitError("Сеть или сервер недоступны. Попробуйте позже.");
+      const timedOut = err instanceof DOMException && err.name === "AbortError";
+      setSubmitError(
+        timedOut
+          ? "Сервер долго не отвечает. Заявка могла сохраниться — проверьте почту или попробуйте ещё раз через минуту."
+          : "Сеть или сервер недоступны. Попробуйте позже.",
+      );
       setLastOrderId(null);
       noteNetworkIssue();
     }
@@ -1072,7 +1083,7 @@ export function OrderForm() {
               required
               rows={4}
               className={fieldClass}
-              placeholder="Укажите адрес удобного пункта выдачи выбранной службы доставки"
+              placeholder="Укажите адрес удобного пункта выдачи выбранной службы доставки. Не забудьте указать город."
             />
           </div>
           <div className="flex flex-wrap items-center gap-3">

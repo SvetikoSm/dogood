@@ -2,12 +2,13 @@ import { printStyles } from "@/lib/landing-data";
 
 /**
  * Превью стилей в форме заказа.
- * Файлы: `public/order-form-styles/{life|speed|rainy}/2.png` (или 2.jpg).
+ * Оптимизированные WebP: `public/order-form-styles/{life|speed|rainy}/2.webp`
+ * (рядом лежат исходные .png — можно удалить вручную).
  */
 export const ORDER_FORM_STYLE_PREVIEW_BY_ID: Record<string, string> = {
-  life: "/order-form-styles/life/2.png",
-  speed: "/order-form-styles/speed/2.png",
-  rainy: "/order-form-styles/rainy/2.png",
+  life: "/order-form-styles/life/2.webp",
+  speed: "/order-form-styles/speed/2.webp",
+  rainy: "/order-form-styles/rainy/2.webp",
 };
 
 export function getOrderFormPreviewUrl(styleId: string): string {

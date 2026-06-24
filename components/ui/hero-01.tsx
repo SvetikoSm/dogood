@@ -10,17 +10,17 @@ export function HeroSection01() {
   return (
     <div className="relative flex min-h-[98vh] w-full items-center justify-center overflow-hidden rounded-[2rem] border border-white/50 bg-white/40 px-4 py-16 shadow-[0_30px_120px_rgba(236,72,153,0.2)] backdrop-blur-md sm:min-h-[104vh] sm:px-8 lg:min-h-[108vh]">
       {/*
-        На телефонах WebGL-фон тяжёлый для CPU/GPU — статичный градиент. С md и выше — GradientWave.
+        На телефонах и планшетах WebGL-фон тяжёлый — статичный градиент. С lg и выше — GradientWave.
       */}
       <div
-        className="pointer-events-none absolute inset-0 z-0 md:hidden"
+        className="pointer-events-none absolute inset-0 z-0 lg:hidden"
         aria-hidden
         style={{
           background:
             "radial-gradient(100% 70% at 50% 100%, rgba(251,113,133,0.28), transparent 50%), radial-gradient(80% 50% at 80% 20%, rgba(232,121,249,0.2), transparent 45%), linear-gradient(165deg, #ffffff 0%, #fdf4ff 40%, #ecfccb 95%)",
         }}
       />
-      <div className="pointer-events-none absolute inset-0 z-0 hidden md:block">
+      <div className="pointer-events-none absolute inset-0 z-0 hidden lg:block">
         <GradientWave
           colors={["#ffffff", "#fb7185", "#e879f9", "#a3e635", "#ffffff"]}
           shadowPower={4}
@@ -70,7 +70,7 @@ export function HeroSection01() {
 
       <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 hidden justify-center sm:flex">
         <Image
-          src="/products/hero-person.png"
+          src="/products/hero-person.webp"
           alt="Амбассадор DOGOOD"
           width={520}
           height={900}
