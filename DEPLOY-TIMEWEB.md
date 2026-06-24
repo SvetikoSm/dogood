@@ -78,8 +78,16 @@ docker login
 
 ## 5. Nginx и HTTPS
 
-Пример конфига в репозитории: `deploy/nginx-dogood.conf.example`.  
-Сертификаты обычно через `certbot --nginx -d ваш-домен.ru`.
+Пример конфига в репозитории: `deploy/nginx-dogood.conf.example` (шаблон) и **`deploy/nginx-dogood.conf`** (готовый для dogood-brand.ru).  
+Установка одной командой на сервере после `git pull`:
+
+```bash
+cd /opt/dogood && sudo bash scripts/install-nginx-dogood.sh
+```
+
+С Windows (нужен пароль SSH): `.\scripts\patch-nginx.ps1`
+
+Сертификаты обычно через `certbot --nginx -d dogood-brand.ru`.
 
 ### Заказ с фото (`POST /api/order`)
 

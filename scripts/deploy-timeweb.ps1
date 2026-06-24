@@ -38,6 +38,7 @@ $remote = @(
   "TB=\$(grep '^TELEGRAM_BOT_TOKEN=' .env.production | cut -d= -f2-)"
   "TW=\$(grep '^TELEGRAM_WEBHOOK_SECRET=' .env.production | cut -d= -f2-)"
   "curl -fsS \"https://api.telegram.org/bot\${TB}/setWebhook?url=https://dogood-brand.ru/api/telegram/webhook&secret_token=\${TW}\" || true"
+  "bash scripts/install-nginx-dogood.sh || true"
   "docker ps --filter name=dogood"
   "curl -sI http://127.0.0.1:3000 | head -n 3"
 ) -join "`n"
