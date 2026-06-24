@@ -6,7 +6,7 @@ type SectionProps = {
   children: ReactNode;
   className?: string;
   surfaceClassName?: string;
-  /** Обводка с подсветкой под курсором (spotlight) — только где нужен эффект */
+  /** Обводка с подсветкой под курсором (spotlight) */
   useSpotlight?: boolean;
 };
 
@@ -15,7 +15,7 @@ export function Section({
   children,
   className = "",
   surfaceClassName = "",
-  useSpotlight = false,
+  useSpotlight = true,
 }: SectionProps) {
   return (
     <section id={id} className={`relative scroll-mt-24 ${surfaceClassName}`}>

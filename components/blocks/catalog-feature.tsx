@@ -17,23 +17,13 @@ const icons = [
   <Layout key="l" className="h-3.5 w-3.5 shrink-0 sm:h-4 sm:w-4" aria-hidden />,
 ];
 
-const tabTriggerClass = cn(
-  "touch-manipulation flex min-h-[4.25rem] w-full min-w-0 flex-col items-center justify-center gap-1 rounded-lg border px-1 py-2 text-center text-[10px] font-semibold leading-snug text-muted-foreground transition-colors sm:min-h-0 sm:flex-row sm:gap-2 sm:rounded-xl sm:px-3 sm:py-3 sm:text-left sm:text-sm",
-  "border-fuchsia-200 bg-white/70 hover:bg-white",
-  "data-[state=active]:border-dogood-pink/50 data-[state=active]:bg-fuchsia-50 data-[state=active]:text-foreground",
-);
-
 export function CatalogFeature({ designs }: { designs: CatalogDesign[] }) {
-  const tabs = useMemo(
-    () =>
-      designs.map((d, i) => ({
-        value: d.id,
-        icon: icons[i % icons.length],
-        label: d.name,
-        design: d,
-      })),
-    [designs],
-  );
+  const tabs = designs.map((d, i) => ({
+    value: d.id,
+    icon: icons[i % icons.length],
+    label: d.name,
+    design: d,
+  }));
   const [activeTab, setActiveTab] = useState(tabs[0]!.value);
   const activeIndex = useMemo(
     () => tabs.findIndex((tab) => tab.value === activeTab),
@@ -43,7 +33,7 @@ export function CatalogFeature({ designs }: { designs: CatalogDesign[] }) {
   const nextTab = tabs[(activeIndex + 1) % tabs.length];
 
   return (
-    <Tabs.Root value={activeTab} onValueChange={setActiveTab} className="relative z-10 w-full min-w-0 max-w-full overflow-hidden">
+    <Tabs.Root value={activeTab} onValueChange={setActiveTab} className="w-full">
       <Tabs.List
         className="grid w-full gap-1.5 sm:gap-3"
         style={{
@@ -55,7 +45,11 @@ export function CatalogFeature({ designs }: { designs: CatalogDesign[] }) {
           <Tabs.Trigger
             key={tab.value}
             value={tab.value}
-            className={tabTriggerClass}
+            className={cn(
+              "flex min-h-[4.25rem] w-full min-w-0 flex-col items-center justify-center gap-1 rounded-lg border px-1 py-2 text-center text-[10px] font-semibold leading-snug text-muted-foreground transition-colors sm:min-h-0 sm:flex-row sm:gap-2 sm:rounded-xl sm:px-3 sm:py-3 sm:text-left sm:text-sm",
+              "border-fuchsia-200 bg-white/70 hover:bg-white",
+              "data-[state=active]:border-dogood-pink/50 data-[state=active]:bg-fuchsia-50 data-[state=active]:text-foreground",
+            )}
           >
             {tab.icon}
             <span className="max-w-full break-words leading-tight">{tab.label}</span>
@@ -63,14 +57,14 @@ export function CatalogFeature({ designs }: { designs: CatalogDesign[] }) {
         ))}
       </Tabs.List>
 
-      <div className="relative z-10 mt-8 w-full min-w-0 max-w-full overflow-hidden rounded-2xl border border-fuchsia-200 bg-white/80 p-5 shadow-[0_18px_50px_rgba(244,114,182,0.12)] sm:p-8 lg:p-12">
+      <div className="mt-8 rounded-2xl border border-fuchsia-200 bg-white/80 p-5 shadow-[0_18px_50px_rgba(244,114,182,0.12)] sm:p-8 lg:p-12">
         {tabs.map((tab) => (
           <Tabs.Content
             key={tab.value}
             value={tab.value}
             className="outline-none data-[state=inactive]:hidden"
           >
-            <div className="grid w-full min-w-0 max-w-full grid-cols-1 gap-10 lg:grid-cols-2 lg:gap-12">
+            <div className="grid min-w-0 gap-10 lg:grid-cols-2 lg:gap-12">
               <div className="flex min-w-0 flex-col gap-4 lg:gap-5">
                 <Badge variant="outline" className="w-fit border-fuchsia-200 bg-white">
                   {tab.design.priceRub.toLocaleString("ru-RU")} ₽
@@ -92,14 +86,14 @@ export function CatalogFeature({ designs }: { designs: CatalogDesign[] }) {
                     type="button"
                     variant="secondary"
                     onClick={() => setActiveTab(prevTab!.value)}
-                    className="touch-manipulation h-10 w-full rounded-full bg-white/80 px-4 text-xs font-semibold uppercase tracking-wide text-neutral-800 hover:bg-white sm:w-auto"
+                    className="h-10 w-full rounded-full bg-white/80 px-4 text-xs font-semibold uppercase tracking-wide text-neutral-800 hover:bg-white sm:w-auto"
                   >
                     ← Предыдущий стиль
                   </Button>
                   <Button
                     type="button"
                     onClick={() => setActiveTab(nextTab!.value)}
-                    className="touch-manipulation h-10 w-full rounded-full bg-fuchsia-600 px-4 text-xs font-semibold uppercase tracking-wide text-white hover:bg-fuchsia-500 sm:w-auto"
+                    className="h-10 w-full rounded-full bg-fuchsia-600 px-4 text-xs font-semibold uppercase tracking-wide text-white hover:bg-fuchsia-500 sm:w-auto"
                   >
                     Следующий стиль →
                   </Button>

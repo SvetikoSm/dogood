@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 
 import { ImageLightbox } from "@/components/ui/image-lightbox";
 import { cn } from "@/lib/utils";
@@ -44,58 +44,14 @@ export function ProductImageCarousel({
   );
   const [index, setIndex] = useState(0);
   const [lightboxOpen, setLightboxOpen] = useState(false);
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const scrollRaf = useRef<number | null>(null);
-  const suppressTapOpen = useRef(false);
   const touchStartX = useRef<number | null>(null);
   const touchStartY = useRef<number | null>(null);
+  const suppressTapOpen = useRef(false);
 
   const n = slides.length;
-
-  const scrollToIndex = useCallback((next: number, smooth = true) => {
-    const el = scrollRef.current;
-    if (!el) return;
-    const clamped = ((next % n) + n) % n;
-    el.scrollTo({
-      left: clamped * el.clientWidth,
-      behavior: smooth ? "smooth" : "auto",
-    });
-    setIndex(clamped);
-  }, [n]);
-
   const go = (dir: -1 | 1) => {
-    scrollToIndex(index + dir);
+    setIndex((prev) => (prev + dir + n) % n);
   };
-
-  useEffect(() => {
-    setIndex(0);
-    const el = scrollRef.current;
-    if (el) el.scrollLeft = 0;
-  }, [imageMain, gallery]);
-
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-
-    const onScroll = () => {
-      if (scrollRaf.current !== null) return;
-      scrollRaf.current = requestAnimationFrame(() => {
-        scrollRaf.current = null;
-        const width = el.clientWidth;
-        if (width <= 0) return;
-        const next = Math.round(el.scrollLeft / width);
-        setIndex((prev) => (prev === next ? prev : next));
-      });
-    };
-
-    el.addEventListener("scroll", onScroll, { passive: true });
-    return () => {
-      el.removeEventListener("scroll", onScroll);
-      if (scrollRaf.current !== null) {
-        cancelAnimationFrame(scrollRaf.current);
-      }
-    };
-  }, [n]);
 
   const onTouchStart = (e: React.TouchEvent) => {
     touchStartX.current = e.touches[0].clientX;
@@ -105,37 +61,46 @@ export function ProductImageCarousel({
 
   const onTouchMove = (e: React.TouchEvent) => {
     if (touchStartX.current === null || touchStartY.current === null) return;
-    const dx = e.touches[0].clientX - touchStartX.current;
-    const dy = e.touches[0].clientY - touchStartY.current;
-    if (Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy)) {
-      suppressTapOpen.current = true;
-    }
+    const dx = Math.abs(e.touches[0].clientX - touchStartX.current);
+    const dy = Math.abs(e.touches[0].clientY - touchStartY.current);
+    // Горизонтальный жест считаем свайпом; подавляем "tap-to-open".
+    if (dx > 10 && dx > dy) suppressTapOpen.current = true;
   };
 
-  const onTouchEnd = () => {
+  const onTouchEnd = (e: React.TouchEvent) => {
+    if (touchStartX.current === null) return;
+    const dx = e.changedTouches[0].clientX - touchStartX.current;
     touchStartX.current = null;
     touchStartY.current = null;
+    if (dx > 48) go(-1);
+    else if (dx < -48) go(1);
   };
 
   if (n === 0) return null;
 
   return (
-    <div className="flex w-full max-w-full min-w-0 flex-col gap-3">
-      <div className="relative w-full max-w-full min-w-0">
+    <div className="flex w-full min-w-0 max-w-full flex-col gap-3">
+      <div
+        className="relative aspect-[4/5] w-full min-w-0 max-w-full overflow-hidden rounded-xl bg-white touch-pan-y"
+        onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
+        onTouchEnd={onTouchEnd}
+        role="region"
+        aria-roledescription="карусель"
+        aria-label="Фотографии товара"
+      >
         <div
-          ref={scrollRef}
-          className="flex aspect-[4/5] w-full max-w-full touch-manipulation snap-x snap-mandatory overflow-x-auto overflow-y-hidden rounded-xl bg-white [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
-          onTouchStart={onTouchStart}
-          onTouchMove={onTouchMove}
-          onTouchEnd={onTouchEnd}
-          role="region"
-          aria-roledescription="карусель"
-          aria-label="Фотографии товара"
+          className="flex h-full transition-transform duration-300 ease-out"
+          style={{
+            width: `${n * 100}%`,
+            transform: `translateX(-${(index / n) * 100}%)`,
+          }}
         >
           {slides.map((src, idx) => (
             <div
               key={`${src}-${idx}`}
-              className="relative h-full w-full min-w-full shrink-0 grow-0 basis-full snap-center snap-always"
+              className="relative h-full flex-shrink-0"
+              style={{ width: `${100 / n}%` }}
             >
               <button
                 type="button"
@@ -144,7 +109,7 @@ export function ProductImageCarousel({
                     suppressTapOpen.current = false;
                     return;
                   }
-                  scrollToIndex(idx, false);
+                  setIndex(idx);
                   setLightboxOpen(true);
                 }}
                 className="relative block h-full w-full"
@@ -162,7 +127,6 @@ export function ProductImageCarousel({
                   sizes="(max-width: 1024px) 100vw, 50vw"
                   unoptimized
                   priority={priority && idx === 0}
-                  draggable={false}
                 />
               </button>
             </div>
@@ -198,7 +162,7 @@ export function ProductImageCarousel({
               <button
                 key={idx}
                 type="button"
-                onClick={() => scrollToIndex(idx)}
+                onClick={() => setIndex(idx)}
                 className={cn(
                   "h-2 rounded-full transition-all",
                   idx === index
