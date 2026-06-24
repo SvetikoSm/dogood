@@ -31,12 +31,8 @@ if [[ -f "$DEST" ]]; then
   OLD_KEY=$(grep -m1 'ssl_certificate_key' "$DEST" | awk '{print $2}' | tr -d ';' || true)
   if [[ -n "$OLD_KEY" && -f "$OLD_KEY" ]]; then
     OLD_FULL=$(grep -m1 'ssl_certificate ' "$DEST" | awk '{print $2}' | tr -d ';' || true)
-    OLD_CHAIN="$(dirname "$OLD_KEY")/chain.pem"
     sed -i "s|ssl_certificate     .*|ssl_certificate     ${OLD_FULL};|" "$TMP"
     sed -i "s|ssl_certificate_key .*|ssl_certificate_key ${OLD_KEY};|" "$TMP"
-    if [[ -f "$OLD_CHAIN" ]]; then
-      sed -i "s|ssl_trusted_certificate .*|ssl_trusted_certificate ${OLD_CHAIN};|" "$TMP"
-    fi
     echo "Using existing certificate paths from previous config."
   fi
 fi
