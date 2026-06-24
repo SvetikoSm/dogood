@@ -152,7 +152,19 @@ cd /opt/dogood && git pull origin main
 docker build -t dogood-v2 .
 docker stop dogood; docker rm dogood
 docker run -d --name dogood --restart unless-stopped -p 127.0.0.1:3000:3000 --env-file .env.production -v dogood_data:/app/data dogood-v2
+sudo bash scripts/install-nginx-dogood.sh
 ```
+
+### 4. Если Safari на iPhone всё ещё не открывает
+
+С компьютера сайт может работать, а с LTE — нет (маршрут до VPS Timeweb). **Надёжное решение — Cloudflare (бесплатно):**
+
+1. Зарегистрировать домен в [Cloudflare](https://dash.cloudflare.com).
+2. Поменять NS-записи у регистратора на Cloudflare.
+3. В Cloudflare: SSL/TLS → **Full (strict)**, включить прокси (оранжевое облако) для A-записи `72.56.39.162`.
+4. Кэширование статики включится автоматически; мобильные получат ближайший edge.
+
+Проверка с телефона: **Настройки → Safari → Данные сайтов → удалить dogood-brand.ru**, затем открыть в приватной вкладке.
 
 ---
 
