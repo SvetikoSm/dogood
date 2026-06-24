@@ -1,66 +1,56 @@
 #!/usr/bin/env bash
-# Полное восстановление HTTPS на VPS. Запуск: sudo bash scripts/restore-https.sh
+# Восстановление HTTPS: certbot-конфиг из репозитория + restart nginx.
+# Запуск на VPS: cd /opt/dogood && git pull && sudo bash scripts/restore-https.sh
 set -euo pipefail
 
-echo "=== 1. Docker ==="
-docker ps --filter name=dogood || true
-curl -sfI http://127.0.0.1:3000 | head -3 || echo "WARN: app :3000 not responding"
-
-echo "=== 2. Restore nginx from OLDEST backup (до наших правок) ==="
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CONF="/etc/nginx/sites-available/dogood"
-BACKUP=$(ls -t "${CONF}.bak."* 2>/dev/null | tail -1 || true)
-if [[ -n "$BACKUP" && -f "$BACKUP" ]]; then
-  cp -a "$BACKUP" "$CONF"
-  echo "Restored from $BACKUP"
-else
-  echo "No backup — writing minimal config"
-  cat > "$CONF" <<'NGINX'
-upstream dogood_next {
-    server 127.0.0.1:3000;
-}
+ENABLED="/etc/nginx/sites-enabled/dogood"
+SRC="${REPO_ROOT}/deploy/nginx-dogood.conf"
 
-server {
-    listen 443 ssl;
-    server_name dogood-brand.ru www.dogood-brand.ru;
-
-    ssl_certificate     /etc/letsencrypt/live/dogood-brand.ru/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/dogood-brand.ru/privkey.pem;
-    include /etc/letsencrypt/options-ssl-nginx.conf;
-    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
-
-    client_max_body_size 25m;
-
-    location / {
-        proxy_pass http://dogood_next;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-}
-
-server {
-    listen 80;
-    server_name dogood-brand.ru www.dogood-brand.ru;
-    return 301 https://$host$request_uri;
-}
-NGINX
+echo "=== 1. App (Docker) ==="
+docker ps --filter name=dogood || true
+if ! curl -sfI http://127.0.0.1:3000 | head -3; then
+  echo "ERROR: приложение на :3000 не отвечает. Сначала: docker ps" >&2
+  exit 1
 fi
 
-ln -sf "$CONF" /etc/nginx/sites-enabled/dogood
+echo "=== 2. Сертификаты ==="
+for f in \
+  /etc/letsencrypt/live/dogood-brand.ru/fullchain.pem \
+  /etc/letsencrypt/live/dogood-brand.ru/privkey.pem \
+  /etc/letsencrypt/options-ssl-nginx.conf \
+  /etc/letsencrypt/ssl-dhparams.pem
+do
+  if [[ ! -f "$f" ]]; then
+    echo "ERROR: нет файла $f" >&2
+    echo "Попробуйте: certbot --nginx -d dogood-brand.ru -d www.dogood-brand.ru" >&2
+    exit 1
+  fi
+done
+openssl x509 -in /etc/letsencrypt/live/dogood-brand.ru/fullchain.pem -noout -dates
+
+echo "=== 3. Nginx config ==="
+if [[ -f "$CONF" ]]; then
+  cp -a "$CONF" "${CONF}.bak.$(date +%Y%m%d%H%M%S)"
+fi
+cp "$SRC" "$CONF"
+ln -sf "$CONF" "$ENABLED"
+
+# Убрать лишние default-сайты, если мешают
+rm -f /etc/nginx/sites-enabled/default 2>/dev/null || true
+
 nginx -t
 systemctl restart nginx
+sleep 1
 
-echo "=== 3. Firewall ==="
-ufw status 2>/dev/null || true
-iptables -L INPUT -n 2>/dev/null | head -10 || true
+echo "=== 4. Порт 443 ==="
+ss -tlnp | grep ':443' || true
 
-echo "=== 4. Local HTTPS test ==="
+echo "=== 5. Проверка HTTPS ==="
 curl -sI https://127.0.0.1 -k -H "Host: dogood-brand.ru" | head -5 || true
-curl -sI https://dogood-brand.ru | head -5 || true
+echo "---"
+curl -sI --max-time 15 https://dogood-brand.ru | head -5 || echo "WARN: внешний curl не ответил"
 
-echo "=== 5. Cert expiry ==="
-openssl x509 -in /etc/letsencrypt/live/dogood-brand.ru/fullchain.pem -noout -dates 2>/dev/null || true
-
-echo "DONE"
+echo ""
+echo "DONE. Если с телефона не открывается — sudo reboot и снова этот скрипт."

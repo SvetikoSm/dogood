@@ -42,6 +42,6 @@ rm -f "$TMP"
 ln -sf "$DEST" "$ENABLED"
 
 nginx -t
-systemctl reload nginx
+systemctl restart nginx
 
-echo "Nginx reloaded. Test: curl -sI https://dogood-brand.ru | head -3"
+echo "Nginx restarted. Test: curl -sI https://dogood-brand.ru | head -3"
