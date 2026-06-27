@@ -8,6 +8,7 @@ export function assetUrl(path: string): string {
   if (!path || !BUST) return path;
   if (path.startsWith("http://") || path.startsWith("https://")) return path;
   const normalized = path.startsWith("/") ? path : `/${path}`;
+  if (/[?&]v=/.test(normalized)) return normalized;
   const sep = normalized.includes("?") ? "&" : "?";
   return `${normalized}${sep}v=${encodeURIComponent(BUST)}`;
 }
