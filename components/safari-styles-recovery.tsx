@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 
-const RELOAD_KEY = "dogood-css-recovery-v2";
+const RELOAD_KEY = "dogood-css-recovery-v3";
 
 function tailwindLoaded(): boolean {
   const probe = document.createElement("div");
@@ -14,24 +14,16 @@ function tailwindLoaded(): boolean {
   return ok;
 }
 
-function reloadOnce(reason: string) {
-  if (typeof sessionStorage === "undefined") return;
-  if (sessionStorage.getItem(RELOAD_KEY)) return;
-  if (typeof navigator !== "undefined" && !navigator.onLine) return;
-  sessionStorage.setItem(RELOAD_KEY, reason);
-  window.location.reload();
-}
-
-/**
- * Один мягкий reload, если CSS не подтянулся. Без reload из bfcache — лишняя нагрузка на сеть.
- */
+/** Один reload только если онлайн и CSS так и не подтянулся через 5с. */
 export function SafariStylesRecovery() {
   useEffect(() => {
-    const check = () => {
-      if (!tailwindLoaded()) reloadOnce("missing-css");
-    };
-
-    const t = window.setTimeout(check, 3000);
+    const t = window.setTimeout(() => {
+      if (tailwindLoaded()) return;
+      if (typeof navigator !== "undefined" && !navigator.onLine) return;
+      if (sessionStorage.getItem(RELOAD_KEY)) return;
+      sessionStorage.setItem(RELOAD_KEY, "1");
+      window.location.reload();
+    }, 5000);
 
     return () => window.clearTimeout(t);
   }, []);

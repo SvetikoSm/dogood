@@ -89,18 +89,15 @@ export function ProductImageCarousel({
         aria-roledescription="карусель"
         aria-label="Фотографии товара"
       >
-        <div
-          className="flex h-full transition-transform duration-300 ease-out"
-          style={{
-            width: `${n * 100}%`,
-            transform: `translateX(-${(index / n) * 100}%)`,
-          }}
-        >
+        <div className="relative h-full w-full overflow-hidden">
           {slides.map((src, idx) => (
             <div
-              key={`${src}-${idx}`}
-              className="relative h-full flex-shrink-0"
-              style={{ width: `${100 / n}%` }}
+              key={src}
+              className={cn(
+                "absolute inset-0 transition-opacity duration-300",
+                idx === index ? "opacity-100" : "pointer-events-none opacity-0",
+              )}
+              aria-hidden={idx !== index}
             >
               <button
                 type="button"
@@ -109,25 +106,26 @@ export function ProductImageCarousel({
                     suppressTapOpen.current = false;
                     return;
                   }
-                  setIndex(idx);
                   setLightboxOpen(true);
                 }}
                 className="relative block h-full w-full"
                 aria-label="Открыть фото на весь экран"
               >
-                <Image
-                  src={src}
-                  alt=""
-                  fill
-                  className={
-                    catalogDesignId === "rainy" && isRainyGalleryFile2(src)
-                      ? "object-contain"
-                      : "object-cover"
-                  }
-                  sizes="(max-width: 1024px) 100vw, 50vw"
-                  unoptimized
-                  priority={priority && idx === 0}
-                />
+                {idx === index ? (
+                  <Image
+                    src={src}
+                    alt=""
+                    fill
+                    className={
+                      catalogDesignId === "rainy" && isRainyGalleryFile2(src)
+                        ? "object-contain"
+                        : "object-cover"
+                    }
+                    sizes="(max-width: 1024px) 100vw, 50vw"
+                    unoptimized
+                    priority={priority && index === 0}
+                  />
+                ) : null}
               </button>
             </div>
           ))}

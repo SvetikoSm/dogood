@@ -79,7 +79,7 @@ export function CatalogFeature({ designs }: { designs: CatalogDesign[] }) {
                   imageMain={tab.design.imageMain}
                   gallery={tab.design.gallery}
                   catalogDesignId={tab.value}
-                  priority={false}
+                  priority={tab.value === tabs[0]?.value}
                 />
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <Button

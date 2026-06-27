@@ -74,22 +74,6 @@ const Faq = lazySection(
   "FAQ",
 );
 
-const OrderForm = dynamic(
-  () =>
-    import("@/components/landing/order-form").then((mod) => mod.OrderForm),
-  {
-    ssr: false,
-    loading: () => (
-      <section
-        id="order"
-        className="mx-auto w-full max-w-6xl scroll-mt-24 px-4 py-16 sm:px-6 lg:px-8"
-        aria-busy="true"
-        aria-label="Загрузка формы заказа"
-      />
-    ),
-  },
-);
-
 export function BelowFoldSections() {
   return (
     <>
@@ -114,7 +98,6 @@ export function BelowFoldSections() {
       <MobileAccordionSection title="FAQ">
         <Faq />
       </MobileAccordionSection>
-      <OrderForm />
     </>
   );
 }
