@@ -5,6 +5,7 @@ import { useCallback, useEffect, useId, useRef, useState } from "react";
 import Link from "next/link";
 import { DogoodButton } from "@/components/ui/dogood-button";
 import { ImageLightbox } from "@/components/ui/image-lightbox";
+import { ProductPhoto } from "@/components/ui/product-photo";
 import { Section, SectionHeading } from "@/components/ui/section";
 import {
   blackShirtPrintColors,
@@ -15,7 +16,7 @@ import {
   shirtSizes,
   sheltersForOrderForm,
 } from "@/lib/landing-data";
-import { getOrderFormPreviewUrl } from "@/lib/order-form-style-previews";
+import { getOrderFormPreviewFallbacks, getOrderFormPreviewUrl } from "@/lib/order-form-style-previews";
 import { Image as ImageIcon } from "lucide-react";
 import {
   compressImageForUpload,
@@ -740,11 +741,13 @@ export function OrderForm() {
                                 className="sr-only"
                               />
                               <div className="relative mb-2 aspect-square overflow-hidden rounded-xl bg-white">
-                                {/* eslint-disable-next-line @next/next/no-img-element */}
-                                <img
+                                <ProductPhoto
                                   src={previewSrc}
+                                  fallbacks={getOrderFormPreviewFallbacks(s.value)}
                                   alt={s.label}
                                   className="h-full w-full object-contain p-1"
+                                  loading="lazy"
+                                  decoding="async"
                                 />
                                 <button
                                   type="button"

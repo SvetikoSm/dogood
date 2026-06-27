@@ -2,7 +2,8 @@
 
 import { useEffect } from "react";
 import { createPortal } from "react-dom";
-import Image from "next/image";
+
+import { ProductPhoto } from "@/components/ui/product-photo";
 
 type ImageLightboxProps = {
   open: boolean;
@@ -90,7 +91,12 @@ export function ImageLightbox({
             →
           </button>
         ) : null}
-        <Image src={src} alt={alt} fill className="object-contain" unoptimized />
+        <ProductPhoto
+          src={src}
+          alt={alt}
+          className="absolute inset-0 h-full w-full object-contain"
+          decoding="async"
+        />
       </div>
     </div>
   );

@@ -1,10 +1,10 @@
 "use client";
 
-import Image from "next/image";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 
 import { ImageLightbox } from "@/components/ui/image-lightbox";
+import { ProductPhoto } from "@/components/ui/product-photo";
 import { cn } from "@/lib/utils";
 
 type Props = {
@@ -99,8 +99,9 @@ export function ProductImageCarousel({
               )}
               aria-hidden={idx !== index}
             >
-              <button
-                type="button"
+              <div
+                role="button"
+                tabIndex={0}
                 onClick={() => {
                   if (suppressTapOpen.current) {
                     suppressTapOpen.current = false;
@@ -108,25 +109,29 @@ export function ProductImageCarousel({
                   }
                   setLightboxOpen(true);
                 }}
-                className="relative block h-full w-full"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    setLightboxOpen(true);
+                  }
+                }}
+                className="relative block h-full w-full cursor-pointer"
                 aria-label="Открыть фото на весь экран"
               >
                 {idx === index ? (
-                  <Image
+                  <ProductPhoto
                     src={src}
-                    alt=""
-                    fill
                     className={
                       catalogDesignId === "rainy" && isRainyGalleryFile2(src)
-                        ? "object-contain"
-                        : "object-cover"
+                        ? "absolute inset-0 h-full w-full object-contain"
+                        : "absolute inset-0 h-full w-full object-cover"
                     }
-                    sizes="(max-width: 1024px) 100vw, 50vw"
-                    unoptimized
-                    priority={priority && index === 0}
+                    loading={priority && index === 0 ? "eager" : "lazy"}
+                    fetchPriority={priority && index === 0 ? "high" : undefined}
+                    decoding="async"
                   />
                 ) : null}
-              </button>
+              </div>
             </div>
           ))}
         </div>

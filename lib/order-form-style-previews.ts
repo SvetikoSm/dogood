@@ -1,26 +1,43 @@
 import { printStyles } from "@/lib/landing-data";
 
+type StylePreview = {
+  src: string;
+  fallbacks: string[];
+};
+
 /**
  * Превью стилей в форме заказа.
- * Оптимизированные WebP: `public/order-form-styles/{life|speed|rainy}/2.webp`
- * (рядом лежат исходные .png — можно удалить вручную).
+ * WebP основной; при ошибке — png из той же папки или из каталога.
  */
-export const ORDER_FORM_STYLE_PREVIEW_BY_ID: Record<string, string> = {
-  life: "/order-form-styles/life/2.webp",
-  speed: "/order-form-styles/speed/2.webp",
-  rainy: "/order-form-styles/rainy/2.webp",
+export const ORDER_FORM_STYLE_PREVIEW: Record<string, StylePreview> = {
+  life: {
+    src: "/order-form-styles/life/2.webp",
+    fallbacks: ["/order-form-styles/life/2.png"],
+  },
+  speed: {
+    src: "/order-form-styles/speed/2.webp",
+    fallbacks: ["/products/speed/2.webp", "/products/speed/2.png"],
+  },
+  rainy: {
+    src: "/order-form-styles/rainy/2.webp",
+    fallbacks: ["/products/rainy/2.webp", "/products/rainy/2.png"],
+  },
 };
 
 export function getOrderFormPreviewUrl(styleId: string): string {
-  return ORDER_FORM_STYLE_PREVIEW_BY_ID[styleId] ?? "";
+  return ORDER_FORM_STYLE_PREVIEW[styleId]?.src ?? "";
+}
+
+export function getOrderFormPreviewFallbacks(styleId: string): string[] {
+  return ORDER_FORM_STYLE_PREVIEW[styleId]?.fallbacks ?? [];
 }
 
 /** @deprecated используйте getOrderFormPreviewUrl */
 export function getOrderFormPreviewCandidatesByStyle(): Record<string, string[]> {
   const out: Record<string, string[]> = {};
   for (const { value } of printStyles) {
-    const url = getOrderFormPreviewUrl(value);
-    out[value] = url ? [url] : [];
+    const p = ORDER_FORM_STYLE_PREVIEW[value];
+    out[value] = p ? [p.src, ...p.fallbacks] : [];
   }
   return out;
 }
