@@ -48,9 +48,7 @@ export default function RootLayout({
       className={`${manrope.variable} ${oswald.variable} h-full antialiased`}
     >
       <head>
-        <meta httpEquiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
-        <meta httpEquiv="Pragma" content="no-cache" />
-        <meta httpEquiv="Expires" content="0" />
+        <meta httpEquiv="Cache-Control" content="max-age=0, must-revalidate" />
         <style dangerouslySetInnerHTML={{ __html: CRITICAL_CSS }} />
       </head>
       <body className="flex min-h-full flex-col bg-background text-foreground antialiased">
