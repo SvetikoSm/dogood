@@ -5,8 +5,38 @@ const onNetlify = process.env.NETLIFY === "true";
 const nextConfig: NextConfig = {
   /** HEIC→JPEG на сервере (`heic-convert`); не бандлить в webpack. */
   serverExternalPackages: ["heic-convert"],
-  /** VPS/Docker (Timeweb и т.п.): см. `Dockerfile`. Для Netlify при сборке задайте `NETLIFY=true` — тогда без `standalone` (вывод плагину). */
+  /** VPS/Docker (Timeweb и t.п.): см. `Dockerfile`. Для Netlify при сборке задайте `NETLIFY=true` — тогда без `standalone` (вывод плагину). */
   ...(!onNetlify ? { output: "standalone" as const } : {}),
+  /**
+   * HTML не кэшируем надолго: Safari/iOS держит страницу без CSS после обрыва
+   * или после деплоя (старый HTML → новый hash CSS). Статика — immutable.
+   */
+  async headers() {
+    return [
+      {
+        source: "/_next/static/:path*",
+        headers: [
+          {
+            key: "Cache-Control",
+            value: "public, max-age=31536000, immutable",
+          },
+        ],
+      },
+      {
+        source: "/((?!_next/static|_next/image|favicon.ico).*)",
+        headers: [
+          {
+            key: "Cache-Control",
+            value: "private, no-cache, no-store, max-age=0, must-revalidate",
+          },
+          {
+            key: "Pragma",
+            value: "no-cache",
+          },
+        ],
+      },
+    ];
+  },
   images: {
     remotePatterns: [
       {

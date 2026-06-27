@@ -116,8 +116,12 @@ body {
   background-size: calc(100% + (2 * var(--border-size))) calc(100% + (2 * var(--border-size)));
   background-repeat: no-repeat;
   background-position: 50% 50%;
+  -webkit-mask: linear-gradient(transparent, transparent),
+    linear-gradient(white, white);
   mask: linear-gradient(transparent, transparent), linear-gradient(white, white);
+  -webkit-mask-clip: padding-box, border-box;
   mask-clip: padding-box, border-box;
+  -webkit-mask-composite: source-in;
   mask-composite: intersect;
 }
 [data-glow]::before {

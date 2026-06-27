@@ -5,6 +5,8 @@ import {
   getYandexMetrikaCounterId,
   yandexMetrikaHeadScript,
 } from "@/lib/analytics/yandex-metrika";
+import { CRITICAL_CSS } from "@/lib/critical-css";
+import { SafariStylesRecovery } from "@/components/safari-styles-recovery";
 import "./globals.css";
 
 const manrope = Manrope({
@@ -28,6 +30,8 @@ export const metadata: Metadata = {
 export const viewport = {
   width: "device-width",
   initialScale: 1,
+  /** iOS Safari: корректный масштаб без зума-ловушек */
+  viewportFit: "cover",
   themeColor: "#fdf4ff",
 };
 
@@ -43,7 +47,14 @@ export default function RootLayout({
       lang="ru"
       className={`${manrope.variable} ${oswald.variable} h-full antialiased`}
     >
+      <head>
+        <meta httpEquiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+        <meta httpEquiv="Pragma" content="no-cache" />
+        <meta httpEquiv="Expires" content="0" />
+        <style dangerouslySetInnerHTML={{ __html: CRITICAL_CSS }} />
+      </head>
       <body className="flex min-h-full flex-col bg-background text-foreground antialiased">
+        <SafariStylesRecovery />
         {ymCounterId ? (
           <>
             <Script
