@@ -7,6 +7,13 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CONF="/etc/nginx/sites-available/dogood"
 ENABLED="/etc/nginx/sites-enabled/dogood"
 SRC="${REPO_ROOT}/deploy/nginx-dogood.conf"
+ENV_FILE="${REPO_ROOT}/.env.production"
+
+echo "=== 0. Env CACHE_BUST_ID (Safari) ==="
+if [[ -f "$ENV_FILE" ]]; then
+  node "${REPO_ROOT}/scripts/patch-env-production.mjs" "$ENV_FILE"
+  grep "^CACHE_BUST_ID=" "$ENV_FILE" || true
+fi
 
 echo "=== 1. App (Docker) ==="
 docker ps --filter name=dogood || true

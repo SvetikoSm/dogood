@@ -32,6 +32,7 @@ const REQUIRED = {
   STUDIO_DRIVE_PET_REFS_FOLDER_ID: "1VcahlOwbGHCqK8iK3HULf4wENu2mTefq",
   STUDIO_DRIVE_TEXT_REFS_FOLDER_ID: "17K50Hx83nj4OBGgMLjM_8Qqzio1VXNqu",
   STUDIO_DRIVE_TEXT_BADGES_FOLDER_ID: "1eB9OI-KYKFb3s4LdiVBEnVOTwxSZGjtl",
+  CACHE_BUST_ID: "20250627-safari",
 };
 
 let lines = existsSync(envPath) ? readFileSync(envPath, "utf8").split(/\r?\n/) : [];
