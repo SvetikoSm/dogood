@@ -1,10 +1,10 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
 import { PawPrint } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { GradientWave } from "@/components/ui/gradient-wave";
+import { HeroPersonImage } from "@/components/ui/hero-person-image";
 
 export function HeroSection01() {
   return (
@@ -30,7 +30,7 @@ export function HeroSection01() {
         />
       </div>
 
-      <div className="relative z-10 mx-auto flex w-full max-w-5xl flex-col items-center pb-8 text-center sm:pb-[36vh] lg:pb-[40vh]">
+      <div className="relative z-10 mx-auto flex w-full max-w-5xl flex-col items-center pb-8 text-center md:pb-[36vh] lg:pb-[40vh]">
         <div className="inline-flex items-center gap-2 rounded-full border border-white/70 bg-white/75 px-4 py-1.5 text-xs font-semibold uppercase tracking-widest text-fuchsia-700">
           <PawPrint className="h-4 w-4" />
           Premium streetwear
@@ -68,17 +68,7 @@ export function HeroSection01() {
         </div>
       </div>
 
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 hidden justify-center sm:flex">
-        <Image
-          src="/products/hero-person.webp"
-          alt="Амбассадор DOGOOD"
-          width={520}
-          height={900}
-          className="block h-[51vh] w-auto object-contain sm:h-[55vh] lg:h-[59vh]"
-          unoptimized
-          priority
-        />
-      </div>
+      <HeroPersonImage />
     </div>
   );
 }

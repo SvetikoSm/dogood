@@ -81,7 +81,7 @@ export function ProductImageCarousel({
   return (
     <div className="flex w-full min-w-0 max-w-full flex-col gap-3">
       <div
-        className="relative aspect-[4/5] w-full min-w-0 max-w-full overflow-hidden rounded-xl bg-white touch-pan-y"
+        className="relative aspect-[4/5] w-full min-w-0 max-w-full overflow-hidden rounded-xl bg-white [touch-action:pan-x_pinch-zoom]"
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}

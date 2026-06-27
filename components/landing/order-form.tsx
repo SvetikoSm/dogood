@@ -457,11 +457,7 @@ export function OrderForm() {
   }
 
   return (
-    <Section
-      id="order"
-      useSpotlight
-      surfaceClassName="bg-transparent"
-    >
+    <Section id="order" surfaceClassName="bg-transparent">
       <SectionHeading
         eyebrow="заявка"
         title="Соберём заказ вместе"

@@ -1,12 +1,14 @@
 import type { ReactNode } from "react";
-import { GlowCard } from "@/components/ui/spotlight-card";
+
+const surfaceClass =
+  "w-full max-w-none rounded-2xl border border-fuchsia-200/70 bg-white/70 !p-5 shadow-[0_20px_60px_rgba(236,72,153,0.12)] sm:!p-8";
 
 type SectionProps = {
   id?: string;
   children: ReactNode;
   className?: string;
   surfaceClassName?: string;
-  /** Обводка с подсветкой под курсором (spotlight) */
+  /** @deprecated статичная карточка на всех экранах (легче на мобильных) */
   useSpotlight?: boolean;
 };
 
@@ -15,24 +17,13 @@ export function Section({
   children,
   className = "",
   surfaceClassName = "",
-  useSpotlight = true,
 }: SectionProps) {
   return (
     <section id={id} className={`relative scroll-mt-24 ${surfaceClassName}`}>
       <div
         className={`mx-auto w-full max-w-6xl px-4 py-16 sm:px-6 sm:py-20 lg:px-8 lg:py-24 ${className}`}
       >
-        {useSpotlight ? (
-          <GlowCard
-            customSize
-            glowColor="purple"
-            className="w-full max-w-none border-fuchsia-200/70 bg-white/70 !p-5 shadow-[0_20px_60px_rgba(236,72,153,0.12)] sm:!p-8"
-          >
-            {children}
-          </GlowCard>
-        ) : (
-          children
-        )}
+        <div className={surfaceClass}>{children}</div>
       </div>
     </section>
   );

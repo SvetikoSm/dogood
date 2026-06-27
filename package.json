@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "studio:db:push": "drizzle-kit push",
-    "studio:seed": "tsx scripts/studio-seed.ts"
+    "studio:seed": "tsx scripts/studio-seed.ts",
+    "images:compress": "node scripts/compress-public-images.mjs"
   },
   "dependencies": {
     "@libsql/client": "^0.17.2",
@@ -37,6 +38,7 @@
     "drizzle-kit": "^0.31.10",
     "eslint": "^9",
     "eslint-config-next": "16.2.1",
+    "sharp": "^0.35.2",
     "tailwindcss": "^4",
     "tsx": "^4.21.0",
     "typescript": "^5"
