@@ -56,8 +56,8 @@
   --color-dogood-yellow-soft: var(--dogood-yellow-soft);
   --color-dogood-muted: var(--dogood-muted);
   --color-dogood-border: var(--dogood-border);
-  --font-sans: var(--font-manrope);
-  --font-display: var(--font-oswald);
+  --font-sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-display: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
 html {
@@ -67,7 +67,7 @@ html {
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: var(--font-manrope), system-ui, sans-serif;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
 .site-color-bg {
@@ -79,7 +79,7 @@ body {
 }
 
 .font-display {
-  font-family: var(--font-oswald), system-ui, sans-serif;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
 .hero-grain {

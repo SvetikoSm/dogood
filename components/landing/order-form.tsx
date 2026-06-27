@@ -746,6 +746,7 @@ export function OrderForm() {
                                   fallbacks={getOrderFormPreviewFallbacks(s.value)}
                                   alt={s.label}
                                   className="h-full w-full object-contain p-1"
+                                  style={{ width: "100%", height: "100%", objectFit: "contain" }}
                                   loading="lazy"
                                   decoding="async"
                                 />

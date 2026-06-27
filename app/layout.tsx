@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import Script from "next/script";
-import { Manrope, Oswald } from "next/font/google";
 import {
   getYandexMetrikaCounterId,
   yandexMetrikaHeadScript,
@@ -8,18 +7,6 @@ import {
 import { CRITICAL_CSS } from "@/lib/critical-css";
 import { SafariStylesRecovery } from "@/components/safari-styles-recovery";
 import "./globals.css";
-
-const manrope = Manrope({
-  variable: "--font-manrope",
-  subsets: ["latin", "cyrillic"],
-  weight: ["400", "700"],
-});
-
-const oswald = Oswald({
-  variable: "--font-oswald",
-  subsets: ["latin", "cyrillic"],
-  weight: ["600", "700"],
-});
 
 export const metadata: Metadata = {
   title: "DOGOOD — streetwear с принтом вашего питомца",
@@ -30,7 +17,6 @@ export const metadata: Metadata = {
 export const viewport = {
   width: "device-width",
   initialScale: 1,
-  /** iOS Safari: корректный масштаб без зума-ловушек */
   viewportFit: "cover",
   themeColor: "#fdf4ff",
 };
@@ -43,10 +29,7 @@ export default function RootLayout({
   const ymCounterId = getYandexMetrikaCounterId();
 
   return (
-    <html
-      lang="ru"
-      className={`${manrope.variable} ${oswald.variable} h-full antialiased`}
-    >
+    <html lang="ru" className="h-full antialiased">
       <head>
         <meta httpEquiv="Cache-Control" content="max-age=0, must-revalidate" />
         <style dangerouslySetInnerHTML={{ __html: CRITICAL_CSS }} />
@@ -57,7 +40,7 @@ export default function RootLayout({
           <>
             <Script
               id="yandex-metrika"
-              strategy="afterInteractive"
+              strategy="lazyOnload"
               dangerouslySetInnerHTML={{
                 __html: yandexMetrikaHeadScript(ymCounterId),
               }}
@@ -79,4 +62,3 @@ export default function RootLayout({
     </html>
   );
 }
-

@@ -11,11 +11,9 @@ type Props = {
   imageMain: string;
   gallery: string[];
   priority?: boolean;
-  /** id стиля из витрины: life | speed | rainy */
   catalogDesignId?: string;
 };
 
-/** В галерее «No rainy days» файл `2.*` показываем целиком в рамке; остальные — crop как раньше. */
 function isRainyGalleryFile2(src: string): boolean {
   return /\/rainy\/2\.(jpe?g|png|webp)/i.test(src);
 }
@@ -49,6 +47,10 @@ export function ProductImageCarousel({
   const suppressTapOpen = useRef(false);
 
   const n = slides.length;
+  const current = slides[index] ?? slides[0] ?? "";
+  const contain =
+    catalogDesignId === "rainy" && current && isRainyGalleryFile2(current);
+
   const go = (dir: -1 | 1) => {
     setIndex((prev) => (prev + dir + n) % n);
   };
@@ -63,7 +65,6 @@ export function ProductImageCarousel({
     if (touchStartX.current === null || touchStartY.current === null) return;
     const dx = Math.abs(e.touches[0].clientX - touchStartX.current);
     const dy = Math.abs(e.touches[0].clientY - touchStartY.current);
-    // Горизонтальный жест считаем свайпом; подавляем "tap-to-open".
     if (dx > 10 && dx > dy) suppressTapOpen.current = true;
   };
 
@@ -76,12 +77,13 @@ export function ProductImageCarousel({
     else if (dx < -48) go(1);
   };
 
-  if (n === 0) return null;
+  if (n === 0 || !current) return null;
 
   return (
     <div className="flex w-full min-w-0 max-w-full flex-col gap-3">
       <div
-        className="relative aspect-[4/5] w-full min-w-0 max-w-full overflow-hidden rounded-xl bg-white [touch-action:pan-x_pinch-zoom]"
+        className="product-photo-frame [touch-action:pan-x_pinch-zoom]"
+        style={{ aspectRatio: "4/5" }}
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
@@ -89,51 +91,37 @@ export function ProductImageCarousel({
         aria-roledescription="карусель"
         aria-label="Фотографии товара"
       >
-        <div className="relative h-full w-full overflow-hidden">
-          {slides.map((src, idx) => (
-            <div
-              key={src}
-              className={cn(
-                "absolute inset-0 transition-opacity duration-300",
-                idx === index ? "opacity-100" : "pointer-events-none opacity-0",
-              )}
-              aria-hidden={idx !== index}
-            >
-              <div
-                role="button"
-                tabIndex={0}
-                onClick={() => {
-                  if (suppressTapOpen.current) {
-                    suppressTapOpen.current = false;
-                    return;
-                  }
-                  setLightboxOpen(true);
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") {
-                    e.preventDefault();
-                    setLightboxOpen(true);
-                  }
-                }}
-                className="relative block h-full w-full cursor-pointer"
-                aria-label="Открыть фото на весь экран"
-              >
-                {idx === index ? (
-                  <ProductPhoto
-                    src={src}
-                    className={
-                      catalogDesignId === "rainy" && isRainyGalleryFile2(src)
-                        ? "absolute inset-0 h-full w-full object-contain"
-                        : "absolute inset-0 h-full w-full object-cover"
-                    }
-                    loading={priority && index === 0 ? "eager" : "lazy"}
-                    fetchPriority={priority && index === 0 ? "high" : undefined}
-                    decoding="async"
-                  />
-                ) : null}
-              </div>
-            </div>
-          ))}
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={() => {
+            if (suppressTapOpen.current) {
+              suppressTapOpen.current = false;
+              return;
+            }
+            setLightboxOpen(true);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              setLightboxOpen(true);
+            }
+          }}
+          className="h-full w-full cursor-pointer"
+          aria-label="Открыть фото на весь экран"
+        >
+          <ProductPhoto
+            src={current}
+            alt="Фото стиля"
+            style={{
+              width: "100%",
+              height: "100%",
+              objectFit: contain ? "contain" : "cover",
+              display: "block",
+            }}
+            loading={priority && index === 0 ? "eager" : "lazy"}
+            decoding="async"
+          />
         </div>
 
         {n > 1 ? (
@@ -183,7 +171,7 @@ export function ProductImageCarousel({
       ) : null}
       <ImageLightbox
         open={lightboxOpen}
-        src={slides[index] ?? ""}
+        src={current}
         alt="Фото стиля"
         onClose={() => setLightboxOpen(false)}
         onPrev={() => go(-1)}
