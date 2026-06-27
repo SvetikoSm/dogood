@@ -4,6 +4,14 @@
  */
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 
+function cacheBustId() {
+  const d = new Date();
+  const p = (n) => String(n).padStart(2, "0");
+  return `${d.getUTCFullYear()}${p(d.getUTCMonth() + 1)}${p(d.getUTCDate())}-${p(d.getUTCHours())}${p(d.getUTCMinutes())}`;
+}
+
+const BUST = cacheBustId();
+
 const envPath = process.argv[2];
 const saPath = process.argv[3];
 const secretsPath = process.argv[4];
@@ -32,7 +40,8 @@ const REQUIRED = {
   STUDIO_DRIVE_PET_REFS_FOLDER_ID: "1VcahlOwbGHCqK8iK3HULf4wENu2mTefq",
   STUDIO_DRIVE_TEXT_REFS_FOLDER_ID: "17K50Hx83nj4OBGgMLjM_8Qqzio1VXNqu",
   STUDIO_DRIVE_TEXT_BADGES_FOLDER_ID: "1eB9OI-KYKFb3s4LdiVBEnVOTwxSZGjtl",
-  CACHE_BUST_ID: "20250627-safari",
+  CACHE_BUST_ID: BUST,
+  NEXT_PUBLIC_CACHE_BUST_ID: BUST,
 };
 
 let lines = existsSync(envPath) ? readFileSync(envPath, "utf8").split(/\r?\n/) : [];

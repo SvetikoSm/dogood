@@ -3,6 +3,7 @@ import path from "node:path";
 
 import type { CatalogDesign } from "@/lib/landing-data";
 import { catalogDesignTemplates } from "@/lib/landing-data";
+import { assetUrl } from "@/lib/asset-url";
 
 const PUBLIC_ROOT = path.join(process.cwd(), "public");
 
@@ -14,7 +15,7 @@ function fileExists(relFromPublic: string): boolean {
 }
 
 function publicUrl(relFromPublic: string): string {
-  return `/${relFromPublic.replace(/\\/g, "/")}`;
+  return assetUrl(`/${relFromPublic.replace(/\\/g, "/")}`);
 }
 
 function listProductDir(folder: string): string[] {

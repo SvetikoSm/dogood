@@ -1,4 +1,5 @@
 import { printStyles } from "@/lib/landing-data";
+import { assetUrl } from "@/lib/asset-url";
 
 type StylePreview = {
   src: string;
@@ -11,16 +12,22 @@ type StylePreview = {
  */
 export const ORDER_FORM_STYLE_PREVIEW: Record<string, StylePreview> = {
   life: {
-    src: "/order-form-styles/life/2.webp",
-    fallbacks: ["/order-form-styles/life/2.png"],
+    src: assetUrl("/order-form-styles/life/2.webp"),
+    fallbacks: [assetUrl("/order-form-styles/life/2.png")],
   },
   speed: {
-    src: "/order-form-styles/speed/2.webp",
-    fallbacks: ["/products/speed/2.webp", "/products/speed/2.png"],
+    src: assetUrl("/order-form-styles/speed/2.webp"),
+    fallbacks: [
+      assetUrl("/products/speed/2.webp"),
+      assetUrl("/products/speed/2.png"),
+    ],
   },
   rainy: {
-    src: "/order-form-styles/rainy/2.webp",
-    fallbacks: ["/products/rainy/2.webp", "/products/rainy/2.png"],
+    src: assetUrl("/order-form-styles/rainy/2.webp"),
+    fallbacks: [
+      assetUrl("/products/rainy/2.webp"),
+      assetUrl("/products/rainy/2.png"),
+    ],
   },
 };
 

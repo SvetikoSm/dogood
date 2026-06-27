@@ -10,6 +10,8 @@ RUN npm ci
 FROM base AS builder
 WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
+ARG NEXT_PUBLIC_CACHE_BUST_ID=safari
+ENV NEXT_PUBLIC_CACHE_BUST_ID=$NEXT_PUBLIC_CACHE_BUST_ID
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN npm run build

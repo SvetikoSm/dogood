@@ -2,6 +2,7 @@
 
 import { useRef, useState } from "react";
 
+import { assetUrl } from "@/lib/asset-url";
 import { imageFallbackChain } from "@/lib/image-fallback-chain";
 import { cn } from "@/lib/utils";
 
@@ -26,8 +27,11 @@ export function ProductPhoto({
   alt = "",
   ...props
 }: ProductPhotoProps) {
-  const chainRef = useRef([...imageFallbackChain(src), ...fallbacks]);
-  const [currentSrc, setCurrentSrc] = useState(src);
+  const chainRef = useRef([
+    ...imageFallbackChain(src),
+    ...fallbacks.map((u) => assetUrl(u)),
+  ]);
+  const [currentSrc, setCurrentSrc] = useState(() => assetUrl(src));
 
   return (
     // eslint-disable-next-line @next/next/no-img-element -- надёжнее next/image на мобиле
