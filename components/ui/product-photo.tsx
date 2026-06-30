@@ -27,11 +27,22 @@ export function ProductPhoto({
   alt = "",
   ...props
 }: ProductPhotoProps) {
-  const chainRef = useRef([
-    ...imageFallbackChain(src),
+  const buildChain = (s: string) => [
+    ...imageFallbackChain(s),
     ...fallbacks.map((u) => assetUrl(u)),
-  ]);
+  ];
+  const chainRef = useRef(buildChain(src));
   const [currentSrc, setCurrentSrc] = useState(() => assetUrl(src));
+
+  // Когда меняется проп src (например, листаем карусель), сбрасываем
+  // картинку и цепочку фолбэков на новое фото. Без этого useState/useRef
+  // «застывают» на первом фото и все слайды показывают одно и то же.
+  const prevSrc = useRef(src);
+  if (prevSrc.current !== src) {
+    prevSrc.current = src;
+    chainRef.current = buildChain(src);
+    setCurrentSrc(assetUrl(src));
+  }
 
   return (
     // eslint-disable-next-line @next/next/no-img-element -- надёжнее next/image на мобиле
