@@ -1,6 +1,7 @@
 import { Section, SectionHeading } from "@/components/ui/section";
 
 const donations = [
+  { shelter: "Фонд «Сиба-Ину»", amount: "9000 ₽" },
   { shelter: "Френчбуль Хелп", amount: "2500 ₽" },
   { shelter: "Shelter tails", amount: "6100 ₽" },
   { shelter: "Искра", amount: "500 ₽" },
@@ -13,7 +14,7 @@ export function GoodDeed() {
       <SectionHeading
         eyebrow="помощь"
         title="Ваше доброе дело"
-        description="Благодаря невероятным клиентам DOGOOD в апреле было переведено в помощь:"
+        description="Благодаря невероятным клиентам DOGOOD было переведено в помощь:"
       />
       <div className="mx-auto max-w-3xl rounded-3xl border border-fuchsia-200 bg-white/80 p-5 shadow-[0_16px_40px_rgba(168,85,247,0.1)] sm:p-6">
         <ul className="space-y-3">

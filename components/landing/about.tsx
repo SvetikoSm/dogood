@@ -18,7 +18,7 @@ export function About() {
           <div className="mt-6 space-y-3 text-base leading-relaxed text-muted-foreground">
             <p>Мы делаем стильные принты, а не «футболки для дачи».</p>
             <p>
-              20% прибыли с каждого заказа отправляем в приют, который выбираете вы.
+              15% прибыли с каждого заказа отправляем в приют, который выбираете вы.
             </p>
             <p>
               Все переводы фиксируем и публикуем прозрачную агрегированную отчётность.
@@ -27,7 +27,7 @@ export function About() {
         </div>
         <div className="relative overflow-hidden rounded-3xl border border-fuchsia-200 bg-gradient-to-br from-dogood-pink-soft via-white to-dogood-yellow-soft p-10 shadow-[0_20px_50px_rgba(244,114,182,0.15)]">
           <p className="font-display text-4xl font-bold uppercase leading-tight text-foreground sm:text-5xl">
-            20%
+            15%
           </p>
           <p className="mt-2 text-sm font-medium uppercase tracking-[0.2em] text-muted-foreground">
             от прибыли — в приют по вашему выбору

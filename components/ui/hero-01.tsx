@@ -48,7 +48,7 @@ export function HeroSection01() {
         </p>
 
         <div className="mt-5 inline-flex items-center rounded-full border-2 border-fuchsia-500 bg-fuchsia-500/15 px-5 py-2 text-sm font-extrabold uppercase tracking-wider text-fuchsia-800 shadow-[0_0_45px_rgba(217,70,239,0.35)]">
-          20% прибыли отправляем в приюты
+          15% прибыли отправляем в приюты
         </div>
 
         <div className="mt-10 flex flex-wrap justify-center gap-3">

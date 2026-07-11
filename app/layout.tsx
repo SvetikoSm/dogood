@@ -11,7 +11,7 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "DOGOOD — streetwear с принтом вашего питомца",
   description:
-    "Стильные футболки с портретом питомца. 20% прибыли — в приют на ваш выбор.",
+    "Стильные футболки с портретом питомца. 15% прибыли — в приют на ваш выбор.",
 };
 
 export const viewport = {
