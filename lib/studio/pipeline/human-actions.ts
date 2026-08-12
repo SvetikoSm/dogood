@@ -47,11 +47,13 @@ export async function approveDogStage(orderId: string): Promise<
   if (!row?.outputArtifactPath) {
     return { ok: false, error: "No successful dog image step yet" };
   }
+  // Standalone "create dog illustration" jobs finish here; full orders proceed to text.
+  const dogNextStatus = order.mode === "dog_only" ? "completed" : "dog_approved_idle";
   await db
     .update(schema.studioOrders)
     .set({
       approvedDogArtifactPath: row.outputArtifactPath,
-      status: "dog_approved_idle",
+      status: dogNextStatus,
       lastError: "",
       updatedAt: new Date(),
     })
@@ -59,16 +61,13 @@ export async function approveDogStage(orderId: string): Promise<
   await logHuman(orderId, "dog", STUDIO_STEP_KEYS.HUMAN_APPROVE_DOG, {
     artifact: row.outputArtifactPath,
   });
-  const [orderRow] = await db.select().from(schema.studioOrders).where(eq(schema.studioOrders.id, orderId)).limit(1);
-  if (orderRow?.petNameRaw) {
-    const up = await uploadStudioArtifactToFolder({
-      studioRelativePath: row.outputArtifactPath,
-      folderKey: "approved",
-      fileBaseName: orderRow.petNameRaw,
-    });
-    if (!up.ok) {
-      console.error("[approveDogStage] drive upload:", up.error);
-    }
+  const up = await uploadStudioArtifactToFolder({
+    studioRelativePath: row.outputArtifactPath,
+    folderKey: "approved",
+    fileBaseName: order.petNameRaw?.trim() || `dog_${order.sheetOrderId}`,
+  });
+  if (!up.ok) {
+    console.error("[approveDogStage] drive upload:", up.error);
   }
   return { ok: true };
 }
@@ -94,6 +93,11 @@ export async function approveTextStage(orderId: string): Promise<
   { ok: true } | { ok: false; error: string }
 > {
   const db = getStudioDb();
+  const [order] = await db
+    .select()
+    .from(schema.studioOrders)
+    .where(eq(schema.studioOrders.id, orderId))
+    .limit(1);
   const row = await latestSuccessfulStepRun(orderId, [
     STUDIO_STEP_KEYS.TEXT_IMG_V2_CORRECTION,
     STUDIO_STEP_KEYS.TEXT_IMG_V1,
@@ -101,11 +105,16 @@ export async function approveTextStage(orderId: string): Promise<
   if (!row?.outputArtifactPath) {
     return { ok: false, error: "No successful text image step yet" };
   }
+  // name_only / dog_text finish after text; full sheet orders proceed to final.
+  const textNextStatus =
+    order?.mode === "name_only" || order?.mode === "dog_text"
+      ? "completed"
+      : "text_approved_idle";
   await db
     .update(schema.studioOrders)
     .set({
       approvedTextArtifactPath: row.outputArtifactPath,
-      status: "text_approved_idle",
+      status: textNextStatus,
       lastError: "",
       updatedAt: new Date(),
     })

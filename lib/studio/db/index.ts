@@ -31,4 +31,10 @@ export function getStudioDb(): StudioDb {
   return _db;
 }
 
+/** Raw libsql client (for runtime schema migration in ensure-schema.ts). */
+export function getStudioRawClient(): Client {
+  getStudioDb();
+  return _client as Client;
+}
+
 export { schema };

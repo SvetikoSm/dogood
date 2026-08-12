@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { index, integer, real, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
 /** Printable design templates (3 in prod; seed adds demo slugs). */
 export const studioTemplates = sqliteTable(
@@ -29,6 +29,8 @@ export const studioTemplates = sqliteTable(
 );
 
 export const studioOrderStatuses = [
+  /** Manual Telegram job being assembled (awaiting photos/name); orchestrator ignores it. */
+  "draft",
   "new",
   "assets_loaded",
   "dog_in_progress",
@@ -62,6 +64,8 @@ export const studioOrders = sqliteTable(
     driveFolderUrl: text("drive_folder_url").notNull().default(""),
     driveFolderId: text("drive_folder_id").notNull().default(""),
     status: text("status").notNull().default("new"),
+    /** full = dog→text→final (sheet); dog_text = dog→text (Telegram pack); dog_only / name_only = single-stage manual */
+    mode: text("mode").notNull().default("full"),
     lastError: text("last_error").notNull().default(""),
     /** Paths relative to studio data dir for approved stage outputs */
     approvedDogArtifactPath: text("approved_dog_artifact_path").notNull().default(""),
@@ -71,6 +75,10 @@ export const studioOrders = sqliteTable(
     reviewNotifiedFor: text("review_notified_for").notNull().default(""),
     /** Latest human reject note from Telegram (used for next correction prompt) */
     humanRejectNote: text("human_reject_note").notNull().default(""),
+    /** Consecutive failed automated steps; reset to 0 on success */
+    retryCount: integer("retry_count").notNull().default(0),
+    /** Orchestrator skips this order until this time (backoff after a failure) */
+    nextRetryAt: integer("next_retry_at", { mode: "timestamp" }),
     /** Snapshot of sheet row for debugging / re-sync */
     sheetPayloadJson: text("sheet_payload_json").notNull().default("{}"),
     createdAt: integer("created_at", { mode: "timestamp" })
@@ -157,6 +165,50 @@ export const studioStepRuns = sqliteTable(
   ],
 );
 
+/** Simple named locks (e.g. cron tick) so overlapping runs don't duplicate work. */
+export const studioLocks = sqliteTable("studio_locks", {
+  name: text("name").primaryKey(),
+  lockedUntil: integer("locked_until", { mode: "timestamp" }).notNull(),
+});
+
+/** One row per billed AI call (LLM or image) so we can total cost per order. */
+export const studioAiCalls = sqliteTable(
+  "studio_ai_calls",
+  {
+    id: text("id").primaryKey(),
+    orderId: text("order_id").notNull().default(""),
+    stepKey: text("step_key").notNull().default(""),
+    /** "llm" | "image" */
+    kind: text("kind").notNull().default("llm"),
+    model: text("model").notNull().default(""),
+    promptTokens: integer("prompt_tokens").notNull().default(0),
+    completionTokens: integer("completion_tokens").notNull().default(0),
+    totalTokens: integer("total_tokens").notNull().default(0),
+    /** USD; OpenRouter returns this in `usage.cost` when we ask for it */
+    costUsd: real("cost_usd").notNull().default(0),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .default(sql`(unixepoch())`),
+  },
+  (t) => [index("studio_ai_calls_order_idx").on(t.orderId)],
+);
+
+/** Per-chat conversation state for the manual Telegram menu (pack/dog/name flows). */
+export const studioTgSessions = sqliteTable("studio_tg_sessions", {
+  chatId: text("chat_id").primaryKey(),
+  /** "pack" | "dog" | "name" | "" */
+  flow: text("flow").notNull().default(""),
+  /** style slug once chosen */
+  style: text("style").notNull().default(""),
+  /** "style" | "photos" | "name" | "" — what the bot is waiting for */
+  awaiting: text("awaiting").notNull().default(""),
+  /** manual order being assembled (photos attach here) */
+  orderId: text("order_id").notNull().default(""),
+  updatedAt: integer("updated_at", { mode: "timestamp" })
+    .notNull()
+    .default(sql`(unixepoch())`),
+});
+
 /** Editable prompt bodies (system + user template); merged at runtime with order context. */
 export const studioPromptDefinitions = sqliteTable("studio_prompt_definitions", {
   key: text("key").primaryKey(),
@@ -168,6 +220,7 @@ export const studioPromptDefinitions = sqliteTable("studio_prompt_definitions", 
     .default(sql`(unixepoch())`),
 });
 
+export type StudioTgSession = typeof studioTgSessions.$inferSelect;
 export type StudioTemplate = typeof studioTemplates.$inferSelect;
 export type StudioOrder = typeof studioOrders.$inferSelect;
 export type StudioOrderPhoto = typeof studioOrderPhotos.$inferSelect;

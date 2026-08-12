@@ -36,7 +36,11 @@ async function tgPost(method: string, body: Record<string, unknown>) {
   return { ok: true as const, raw };
 }
 
-async function sendPhoto(pathAbs: string, caption: string) {
+async function sendPhoto(
+  pathAbs: string,
+  caption: string,
+  replyMarkup?: Record<string, unknown>,
+) {
   const token = getToken();
   const chatId = getChatId();
   if (!token || !chatId) return { ok: false, error: "telegram not configured" };
@@ -44,10 +48,34 @@ async function sendPhoto(pathAbs: string, caption: string) {
   const form = new FormData();
   form.append("chat_id", chatId);
   form.append("caption", caption.slice(0, 900));
+  if (replyMarkup) form.append("reply_markup", JSON.stringify(replyMarkup));
   form.append("photo", new Blob([buf]), "preview.png");
   const res = await fetch(`${BOT_API}/bot${token}/sendPhoto`, { method: "POST", body: form });
   if (!res.ok) return { ok: false, error: await res.text() };
   return { ok: true };
+}
+
+/** Plain-text ops alert to the review chat (e.g. an order parked as error). */
+export async function sendStudioAlert(text: string): Promise<void> {
+  const token = getToken();
+  const chatId = getChatId();
+  if (!token || !chatId) return;
+  try {
+    await tgPost("sendMessage", { chat_id: chatId, text: text.slice(0, 4000) });
+  } catch {
+    /* alerts must never crash the pipeline */
+  }
+}
+
+function approvalKeyboard(stage: "dog" | "text" | "final", sheetOrderId: string) {
+  return {
+    inline_keyboard: [
+      [
+        { text: "✅ Approve", callback_data: `a|${stage}|${sheetOrderId}`.slice(0, 64) },
+        { text: "❌ Reject", callback_data: `r|${stage}|${sheetOrderId}`.slice(0, 64) },
+      ],
+    ],
+  };
 }
 
 export async function sendStudioReviewRequest(orderId: string, stage: "dog" | "text" | "final"): Promise<
@@ -70,9 +98,8 @@ export async function sendStudioReviewRequest(orderId: string, stage: "dog" | "t
     `Pet: ${order.petNameRaw}`,
     `Style: ${style}`,
     "",
-    "Reply with:",
-    `/approve_${stage}_${order.sheetOrderId}`,
-    `/reject_${stage}_${order.sheetOrderId} your comment (optional)`,
+    "Use the buttons under the generated image, or reply with:",
+    `/reject_${stage}_${order.sheetOrderId} your comment — to guide the correction`,
   ].join("\n");
 
   await tgPost("sendMessage", { chat_id: getChatId(), text: header });
@@ -114,7 +141,17 @@ export async function sendStudioReviewRequest(orderId: string, stage: "dog" | "t
   }
 
   if (artifact) {
-    await sendPhoto(absoluteFromStudioRelative(artifact), `Generated ${stage}`);
+    await sendPhoto(
+      absoluteFromStudioRelative(artifact),
+      `Generated ${stage} — ${order.petNameRaw}`,
+      approvalKeyboard(stage, order.sheetOrderId),
+    );
+  } else {
+    await tgPost("sendMessage", {
+      chat_id: getChatId(),
+      text: `No ${stage} artifact found for ${order.sheetOrderId} — check /studio/orders.`,
+      reply_markup: approvalKeyboard(stage, order.sheetOrderId),
+    });
   }
 
   await db
@@ -125,67 +162,83 @@ export async function sendStudioReviewRequest(orderId: string, stage: "dog" | "t
   return { ok: true };
 }
 
+type ReviewStage = "dog" | "text" | "final";
+
+/** Used when the reviewer rejects without a comment — the LLM decides what to fix. */
+const GENERIC_REJECT_NOTE =
+  "The human reviewer rejected this image without a comment. Compare it carefully against the customer photos and the style references, identify the most likely flaws, and produce an improved version.";
+
+async function applyApprove(stage: ReviewStage, sheetOrderId: string): Promise<string> {
+  const db = getStudioDb();
+  const order = await db
+    .select()
+    .from(schema.studioOrders)
+    .where(eq(schema.studioOrders.sheetOrderId, sheetOrderId))
+    .get();
+  if (!order) return `Order not found: ${sheetOrderId}`;
+  const { approveDogStage, approveTextStage, approveFinalStage } = await import(
+    "@/lib/studio/pipeline/human-actions"
+  );
+  const fn =
+    stage === "dog" ? approveDogStage : stage === "text" ? approveTextStage : approveFinalStage;
+  const r = await fn(order.id);
+  return r.ok
+    ? `✅ ${stage} approved for ${sheetOrderId}`
+    : `${stage} approve failed: ${r.error}`;
+}
+
+async function applyReject(
+  stage: ReviewStage,
+  sheetOrderId: string,
+  note: string,
+): Promise<string> {
+  const db = getStudioDb();
+  const order = await db
+    .select()
+    .from(schema.studioOrders)
+    .where(eq(schema.studioOrders.sheetOrderId, sheetOrderId))
+    .get();
+  if (!order) return `Order not found: ${sheetOrderId}`;
+  const noteTrim = note.trim() || GENERIC_REJECT_NOTE;
+  await db
+    .update(schema.studioOrders)
+    .set({
+      humanRejectNote: noteTrim,
+      reviewNotifiedFor: "",
+      updatedAt: new Date(),
+    })
+    .where(eq(schema.studioOrders.id, order.id));
+
+  const { rejectDogStage, rejectTextStage, rejectFinalStage } = await import(
+    "@/lib/studio/pipeline/human-actions"
+  );
+  const fn =
+    stage === "dog" ? rejectDogStage : stage === "text" ? rejectTextStage : rejectFinalStage;
+  await fn(order.id, noteTrim);
+  return `❌ ${stage} rejected for ${sheetOrderId}. Regeneration queued.`;
+}
+
 export async function handleTelegramCommand(text: string): Promise<string> {
   const t = text.trim();
   const approve = t.match(/^\/approve_(dog|text|final)_(\S+)/i);
   if (approve) {
-    const [, stage, sheetOrderId] = approve;
-    const db = getStudioDb();
-    const order = await db
-      .select()
-      .from(schema.studioOrders)
-      .where(eq(schema.studioOrders.sheetOrderId, sheetOrderId))
-      .get();
-    if (!order) return `Order not found: ${sheetOrderId}`;
-    const { approveDogStage, approveTextStage, approveFinalStage } = await import(
-      "@/lib/studio/pipeline/human-actions"
-    );
-    if (stage === "dog") {
-      const r = await approveDogStage(order.id);
-      return r.ok ? `Dog approved for ${sheetOrderId}` : `Dog approve failed: ${r.error}`;
-    }
-    if (stage === "text") {
-      const r = await approveTextStage(order.id);
-      return r.ok ? `Text approved for ${sheetOrderId}` : `Text approve failed: ${r.error}`;
-    }
-    const r = await approveFinalStage(order.id);
-    return r.ok ? `Final approved for ${sheetOrderId}` : `Final approve failed: ${r.error}`;
+    return applyApprove(approve[1].toLowerCase() as ReviewStage, approve[2]);
   }
 
   const reject = t.match(/^\/reject_(dog|text|final)_(\S+)\s*([\s\S]*)$/i);
   if (reject) {
-    const [, stage, sheetOrderId, note] = reject;
-    const db = getStudioDb();
-    const order = await db
-      .select()
-      .from(schema.studioOrders)
-      .where(eq(schema.studioOrders.sheetOrderId, sheetOrderId))
-      .get();
-    if (!order) return `Order not found: ${sheetOrderId}`;
-    const noteTrim = (note ?? "").trim();
-    await db
-      .update(schema.studioOrders)
-      .set({
-        humanRejectNote: noteTrim,
-        reviewNotifiedFor: "",
-        updatedAt: new Date(),
-      })
-      .where(eq(schema.studioOrders.id, order.id));
-
-    const { rejectDogStage, rejectTextStage, rejectFinalStage } = await import(
-      "@/lib/studio/pipeline/human-actions"
-    );
-    if (stage === "dog") {
-      await rejectDogStage(order.id, noteTrim || "Human rejected — AI will suggest corrections");
-      return `Dog rejected for ${sheetOrderId}. Regeneration queued.`;
-    }
-    if (stage === "text") {
-      await rejectTextStage(order.id, noteTrim || "Human rejected — AI will suggest corrections");
-      return `Text rejected for ${sheetOrderId}. Regeneration queued.`;
-    }
-    await rejectFinalStage(order.id, noteTrim || "Human rejected — AI will suggest corrections");
-    return `Final rejected for ${sheetOrderId}. Regeneration queued.`;
+    return applyReject(reject[1].toLowerCase() as ReviewStage, reject[2], reject[3] ?? "");
   }
 
-  return "Commands: /approve_dog_ORDERID, /reject_dog_ORDERID comment";
+  return "Use the ✅/❌ buttons under review images, or:\n/approve_dog_ORDERID\n/reject_dog_ORDERID your comment";
+}
+
+/** Inline-button presses: callback_data is "a|stage|sheetOrderId" or "r|stage|sheetOrderId". */
+export async function handleTelegramCallback(data: string): Promise<string> {
+  const m = data.match(/^([ar])\|(dog|text|final)\|(.+)$/);
+  if (!m) return "Unknown action";
+  const [, kind, stage, sheetOrderId] = m;
+  if (kind === "a") return applyApprove(stage as ReviewStage, sheetOrderId);
+  const reply = await applyReject(stage as ReviewStage, sheetOrderId, "");
+  return `${reply}\nTip: to guide the fix, send /reject_${stage}_${sheetOrderId} your comment`;
 }

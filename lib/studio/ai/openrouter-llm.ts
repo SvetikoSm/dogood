@@ -1,5 +1,6 @@
 import "server-only";
 
+import { parseOpenRouterUsage, recordAiCall, type AiCallContext, type AiUsage } from "@/lib/studio/ai/usage";
 import { isStudioMockMode } from "@/lib/studio/env";
 import { getEnvRaw } from "@/lib/studio/runtime-env";
 import {
@@ -8,7 +9,7 @@ import {
 } from "@/lib/studio/types/llm-json";
 
 export type OpenRouterLlmResult =
-  | { ok: true; raw: string; parsed: LlmReviewEnvelope | null }
+  | { ok: true; raw: string; parsed: LlmReviewEnvelope | null; usage?: AiUsage }
   | { ok: false; error: string };
 
 /**
@@ -60,6 +61,7 @@ export async function openRouterChatJson(opts: {
       body: JSON.stringify({
         model,
         temperature: 0.4,
+        usage: { include: true },
         messages: [
           { role: "system", content: opts.system },
           { role: "user", content: userContent },
@@ -70,6 +72,7 @@ export async function openRouterChatJson(opts: {
     if (!res.ok) {
       return { ok: false, error: `OpenRouter HTTP ${res.status}: ${raw.slice(0, 500)}` };
     }
+    const usage = parseOpenRouterUsage(raw, model);
     let assistant = "";
     try {
       const j = JSON.parse(raw) as {
@@ -96,9 +99,20 @@ export async function openRouterChatJson(opts: {
       ok: true,
       raw: assistant,
       parsed: parseLlmReviewEnvelope(assistant),
+      usage,
     };
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     return { ok: false, error: message };
   }
+}
+
+/** Same as openRouterChatJson, but records the call's token/$ cost. */
+export async function openRouterChatJsonTracked(
+  ctx: AiCallContext,
+  opts: Parameters<typeof openRouterChatJson>[0],
+): Promise<OpenRouterLlmResult> {
+  const r = await openRouterChatJson(opts);
+  if (r.ok) await recordAiCall(ctx, "llm", r.usage);
+  return r;
 }

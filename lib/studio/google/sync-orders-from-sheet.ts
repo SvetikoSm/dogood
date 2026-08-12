@@ -31,12 +31,24 @@ function styleFromSheetRow(values: Record<string, string>): string {
   );
 }
 
+/** Photo folder/link column varies by sheet vintage; first non-empty wins. */
+function photoFolderUrlFromSheetRow(values: Record<string, string>): string {
+  return (
+    values[STUDIO_SHEET_DEFAULTS.driveFolderColumn]?.trim() ||
+    values["Ссылка на фото"]?.trim() ||
+    values["Ссылки на фото"]?.trim() ||
+    ""
+  );
+}
+
 function isProcessableSheetRow(values: Record<string, string>): boolean {
   const orderId = values[STUDIO_SHEET_DEFAULTS.orderIdColumn]?.trim() ?? "";
   if (!orderId || orderId.toLowerCase().startsWith("add-on")) return false;
-  const folder = values[STUDIO_SHEET_DEFAULTS.driveFolderColumn]?.trim() ?? "";
-  const photoLinks = values["Ссылки на фото"]?.trim() ?? "";
-  return Boolean(folder || photoLinks);
+  if (photoFolderUrlFromSheetRow(values)) return true;
+  // Newer rows: the site uploads photos to a Drive folder named by Order ID
+  // and the link cell stays empty — "Количество фото" is the signal.
+  const photoCount = parseInt(values["Количество фото"] ?? "", 10);
+  return Number.isFinite(photoCount) && photoCount > 0;
 }
 
 /**
@@ -68,7 +80,7 @@ export async function syncStudioOrdersFromGoogleSheet(): Promise<{
     const normalized = normalizeStyleId(styleRaw);
     if (!normalized) continue;
 
-    const driveFolderUrl = v[STUDIO_SHEET_DEFAULTS.driveFolderColumn]?.trim() ?? "";
+    const driveFolderUrl = photoFolderUrlFromSheetRow(v);
     const driveFolderId = extractDriveFolderId(driveFolderUrl);
 
     const existing = await db
@@ -95,6 +107,9 @@ export async function syncStudioOrdersFromGoogleSheet(): Promise<{
         })
         .where(eq(schema.studioOrders.id, existing.id));
     } else {
+      // Rows that already have a print link were produced before this system
+      // existed — import them as completed so they are never reprocessed.
+      const alreadyPrinted = Boolean(v["Ссылка на принт"]?.trim());
       await db.insert(schema.studioOrders).values({
         id: randomUUID(),
         sheetOrderId,
@@ -104,7 +119,7 @@ export async function syncStudioOrdersFromGoogleSheet(): Promise<{
         designSlug: normalized,
         driveFolderUrl,
         driveFolderId,
-        status: "new",
+        status: alreadyPrinted ? "completed" : "new",
         sheetPayloadJson,
       });
     }

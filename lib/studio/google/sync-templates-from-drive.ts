@@ -1,4 +1,4 @@
-import "server-only";
+﻿import "server-only";
 
 import { randomUUID } from "node:crypto";
 
@@ -6,20 +6,49 @@ import { eq } from "drizzle-orm";
 
 import type { StyleSlug } from "@/lib/ops/style-masters";
 import { STYLE_MASTER_FILE_LABEL } from "@/lib/ops/style-masters";
-import {
-  getStudioDriveFolder,
-  N8N_TEXT_STYLE_REF_FILE_IDS,
-} from "@/lib/studio/config";
+import { getStudioDriveFolder } from "@/lib/studio/config";
 import { getStudioDb, schema } from "@/lib/studio/db";
 import {
   downloadDriveFile,
   downloadDriveFolderFileToRelative,
+  extFromMime,
   listDriveFolderImages,
+  listDriveSubfolders,
   mockupCandidatesForSlug,
 } from "@/lib/studio/google/drive-files";
 import { absoluteFromStudioRelative } from "@/lib/studio/paths";
 
 const SLUGS: StyleSlug[] = ["speed", "life", "rainy"];
+
+/** The pet-refs Drive folder contains one subfolder per style. */
+const PET_REF_SUBFOLDER_HINTS: Record<StyleSlug, string[]> = {
+  life: ["life is good", "life is better", "life"],
+  rainy: ["no rainy days", "rainy"],
+  speed: ["я - скорость", "я — скорость", "скорость", "speed"],
+};
+
+const MAX_PET_REFS = 4;
+
+/**
+ * Text-style reference files are named by style in the text-refs Drive folder.
+ * (Previously fetched by hardcoded file id, which had all three styles swapped.)
+ */
+const TEXT_REF_NAME_CANDIDATES: Record<StyleSlug, string[]> = {
+  life: ["Life is better", "life is good", "life"],
+  rainy: ["No rainy days", "rainy"],
+  speed: ["I am speed", "я - скорость", "я — скорость", "скорость", "speed"],
+};
+
+function matchSubfolder(
+  folders: { id: string; name: string }[],
+  hints: string[],
+): { id: string; name: string } | null {
+  for (const hint of hints) {
+    const hit = folders.find((f) => f.name.trim().toLowerCase().includes(hint));
+    if (hit) return hit;
+  }
+  return null;
+}
 
 /**
  * Pull mockup masters + pet/text style refs from Google Drive into data/studio/templates/.
@@ -33,8 +62,8 @@ export async function syncStudioTemplatesFromDrive(): Promise<{
   const petFolder = getStudioDriveFolder("petStyleRefs");
   const textFolder = getStudioDriveFolder("textStyleRefs");
 
-  const petListed = await listDriveFolderImages(petFolder);
-  if ("ok" in petListed && petListed.ok === false) return petListed;
+  const petSubfolders = await listDriveSubfolders(petFolder);
+  if ("ok" in petSubfolders && petSubfolders.ok === false) return petSubfolders;
 
   const detail: string[] = [];
   const db = getStudioDb();
@@ -52,40 +81,38 @@ export async function syncStudioTemplatesFromDrive(): Promise<{
       continue;
     }
 
-    const petCandidates = [
-      STYLE_MASTER_FILE_LABEL[slug],
-      ...mockupCandidatesForSlug(slug),
-    ];
     const petRefs: string[] = [];
-    let petIdx = 0;
-    for (const name of petCandidates) {
-      const hit = (petListed as { id: string; name: string; mimeType: string }[]).find(
-        (f) =>
-          f.name.replace(/\.[^.]+$/, "").toLowerCase().includes(name.toLowerCase()) ||
-          name.toLowerCase().includes(f.name.replace(/\.[^.]+$/, "").toLowerCase()),
+    const sub = matchSubfolder(
+      petSubfolders as { id: string; name: string }[],
+      PET_REF_SUBFOLDER_HINTS[slug],
+    );
+    if (!sub) {
+      detail.push(
+        `${slug} pet refs: no subfolder matching [${PET_REF_SUBFOLDER_HINTS[slug].join(", ")}]`,
       );
-      if (!hit) continue;
-      petIdx += 1;
-      const rel = `${base}/pet_ref_${petIdx}.png`;
-      const dl = await downloadDriveFile(hit.id, absoluteFromStudioRelative(rel));
-      if (dl.ok) petRefs.push(rel);
-      if (petRefs.length >= 2) break;
+    } else {
+      const imgs = await listDriveFolderImages(sub.id);
+      if ("ok" in imgs && imgs.ok === false) {
+        detail.push(`${slug} pet refs: ${imgs.error}`);
+      } else {
+        for (const f of (imgs as { id: string; name: string; mimeType: string }[]).slice(
+          0,
+          MAX_PET_REFS,
+        )) {
+          const rel = `${base}/pet_ref_${petRefs.length + 1}${extFromMime(f.mimeType)}`;
+          const dl = await downloadDriveFile(f.id, absoluteFromStudioRelative(rel));
+          if (dl.ok) petRefs.push(rel);
+        }
+      }
     }
 
-    const textFileId = N8N_TEXT_STYLE_REF_FILE_IDS[slug];
     const textRel = `${base}/text_ref.png`;
-    const textDl = await downloadDriveFile(
-      textFileId,
-      absoluteFromStudioRelative(textRel),
+    const textDl = await downloadDriveFolderFileToRelative(
+      textFolder,
+      TEXT_REF_NAME_CANDIDATES[slug],
+      textRel,
     );
-    if (!textDl.ok) {
-      const fromFolder = await downloadDriveFolderFileToRelative(
-        textFolder,
-        mockupCandidatesForSlug(slug),
-        textRel,
-      );
-      if (!fromFolder.ok) detail.push(`${slug} text ref: ${fromFolder.error}`);
-    }
+    if (!textDl.ok) detail.push(`${slug} text ref: ${textDl.error}`);
 
     const replacementRules =
       slug === "rainy"
@@ -108,7 +135,7 @@ export async function syncStudioTemplatesFromDrive(): Promise<{
         slug,
         name: STYLE_MASTER_FILE_LABEL[slug],
         designTemplatePath: `${base}/design.png`,
-        petStyleRefPathsJson: JSON.stringify(petRefs.length ? petRefs : [`${base}/pet_ref_1.png`]),
+        petStyleRefPathsJson: JSON.stringify(petRefs),
         textStyleRefPath: textRel,
         replacementRulesJson: JSON.stringify(replacementRules),
         compositionNotes,
@@ -118,7 +145,7 @@ export async function syncStudioTemplatesFromDrive(): Promise<{
         set: {
           name: STYLE_MASTER_FILE_LABEL[slug],
           designTemplatePath: `${base}/design.png`,
-          petStyleRefPathsJson: JSON.stringify(petRefs.length ? petRefs : [`${base}/pet_ref_1.png`]),
+          petStyleRefPathsJson: JSON.stringify(petRefs),
           textStyleRefPath: textRel,
           replacementRulesJson: JSON.stringify(replacementRules),
           compositionNotes,

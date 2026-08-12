@@ -9,6 +9,7 @@ import { eq } from "drizzle-orm";
 import { getGoogleOpsClients } from "@/lib/ops/google-client";
 import { getStudioDb, schema } from "@/lib/studio/db";
 import { absoluteFromStudioRelative, getStudioDataDir } from "@/lib/studio/paths";
+import { getOrderDriveParentFolderId } from "@/lib/upload-order-photos-to-drive";
 
 const IMAGE_MIME = new Set([
   "image/jpeg",
@@ -35,17 +36,48 @@ export async function fetchDrivePhotosForOrder(orderId: string): Promise<{
     .where(eq(schema.studioOrders.id, orderId))
     .get();
   if (!order) return { ok: false, error: "order not found" };
-  if (!order.driveFolderId) {
-    return { ok: false, error: "order has no Drive folder id (sync sheet / check Папка с фото)" };
-  }
 
   const clients = getGoogleOpsClients();
   if (!clients) {
     return { ok: false, error: "GOOGLE_SERVICE_ACCOUNT_JSON not configured" };
   }
 
+  let folderId = order.driveFolderId;
+  if (!folderId) {
+    // Newer orders: the site uploads photos into a folder named by Order ID
+    // under the shared parent — the sheet's link cell stays empty.
+    const parent = getOrderDriveParentFolderId();
+    if (parent) {
+      const safeName = order.sheetOrderId.replace(/['\\]/g, "");
+      const found = await clients.drive.files.list({
+        q: `'${parent}' in parents and mimeType='application/vnd.google-apps.folder' and name='${safeName}' and trashed=false`,
+        fields: "files(id,name)",
+        pageSize: 5,
+        supportsAllDrives: true,
+        includeItemsFromAllDrives: true,
+      });
+      folderId = found.data.files?.[0]?.id ?? "";
+      if (folderId) {
+        await db
+          .update(schema.studioOrders)
+          .set({
+            driveFolderId: folderId,
+            driveFolderUrl: `https://drive.google.com/drive/folders/${folderId}`,
+            updatedAt: new Date(),
+          })
+          .where(eq(schema.studioOrders.id, orderId));
+      }
+    }
+  }
+  if (!folderId) {
+    return {
+      ok: false,
+      error: `no Drive folder: sheet link empty and no folder named "${order.sheetOrderId}" under the orders parent folder`,
+    };
+  }
+
   const list = await clients.drive.files.list({
-    q: `'${order.driveFolderId}' in parents and trashed=false`,
+    q: `'${folderId}' in parents and trashed=false`,
     fields: "files(id,name,mimeType)",
     pageSize: 100,
     supportsAllDrives: true,
@@ -70,13 +102,29 @@ export async function fetchDrivePhotosForOrder(orderId: string): Promise<{
       { fileId: f.id, alt: "media" },
       { responseType: "arraybuffer" },
     );
-    const buf = Buffer.from(res.data as ArrayBuffer);
+    let buf: Buffer = Buffer.from(res.data as ArrayBuffer);
+    let mimeType = f.mimeType || "application/octet-stream";
+    // iPhone photos: models reject HEIC bytes — convert to JPEG first.
+    if (
+      mimeType === "image/heic" ||
+      mimeType === "image/heif" ||
+      /\.hei[cf]$/i.test(f.name || "")
+    ) {
+      const { convertHeicBufferToJpeg } = await import("@/lib/convert-heic-server");
+      const jpeg = await convertHeicBufferToJpeg(buf);
+      if (!jpeg) {
+        console.error("[fetchDrivePhotos] heic convert failed:", f.name);
+        continue;
+      }
+      buf = jpeg;
+      mimeType = "image/jpeg";
+    }
     const ext =
-      f.mimeType === "image/png"
+      mimeType === "image/png"
         ? ".png"
-        : f.mimeType === "image/webp"
+        : mimeType === "image/webp"
           ? ".webp"
-          : f.mimeType === "image/gif"
+          : mimeType === "image/gif"
             ? ".gif"
             : ".jpg";
     const safeName = (f.name || "photo").replace(/[^\w.\-()]/g, "_");
@@ -91,7 +139,7 @@ export async function fetchDrivePhotosForOrder(orderId: string): Promise<{
       sortOrder: sort,
       driveFileId: f.id,
       originalName: f.name || safeName,
-      mimeType: f.mimeType || "application/octet-stream",
+      mimeType,
       localRelativePath: rel.replace(/\\/g, "/"),
     });
     sort += 1;

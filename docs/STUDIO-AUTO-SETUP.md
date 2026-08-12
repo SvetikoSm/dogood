@@ -31,9 +31,10 @@ Copy `.env.example` → `.env.local` and set:
 |----------|--------|
 | `GOOGLE_SERVICE_ACCOUNT_JSON` | Same SA as site / Timeweb; share sheet + all Drive folders with `client_email` |
 | `GOOGLE_SHEETS_SPREADSHEET_ID` | `1v0qR8kUcEICstHSo-R1yluzxarepLmL2B_cSTd1KN1Y` |
-| `GOOGLE_SHEETS_TAB_NAME` | `DOGOOD` |
+| `GOOGLE_SHEETS_TAB_NAME` | `Orders` (the live tab; NOT "DOGOOD") |
 | `OPENROUTER_API_KEY` | Same as n8n Header Auth / OpenRouter |
-| `STUDIO_IMAGE_MODEL` | `google/gemini-3-pro-image-preview` (n8n) |
+| `STUDIO_IMAGE_MODEL` | `openai/gpt-5.4-image-2` (GPT Image) |
+| `STUDIO_LLM_MODEL` | `google/gemini-2.5-flash` (needs image input for critiques) |
 | `STUDIO_MOCK_AI` | `false` |
 | `STUDIO_CRON_SECRET` | random string |
 | `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` | @BotFather |

@@ -33,6 +33,9 @@ COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules/heic-convert ./node_modules/heic-convert
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules/heic-decode ./node_modules/heic-decode
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules/jpeg-js ./node_modules/jpeg-js
+# sharp (даунскейл фото перед отправкой в LLM) — нативный, standalone-tracer его не тянет
+COPY --from=builder --chown=nextjs:nodejs /app/node_modules/sharp ./node_modules/sharp
+COPY --from=builder --chown=nextjs:nodejs /app/node_modules/@img ./node_modules/@img
 
 RUN mkdir -p /app/data/order-submissions && chown -R nextjs:nodejs /app/data
 

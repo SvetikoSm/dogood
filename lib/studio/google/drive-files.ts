@@ -34,6 +34,21 @@ export async function listDriveFolderImages(
   return files;
 }
 
+export async function listDriveSubfolders(
+  folderId: string,
+): Promise<DriveListedFile[] | { ok: false; error: string }> {
+  const clients = getGoogleOpsClients();
+  if (!clients) return { ok: false, error: "GOOGLE_SERVICE_ACCOUNT_JSON not configured" };
+  const list = await clients.drive.files.list({
+    q: `'${folderId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
+    fields: "files(id,name,mimeType)",
+    pageSize: 100,
+    supportsAllDrives: true,
+    includeItemsFromAllDrives: true,
+  });
+  return (list.data.files ?? []).filter((f) => f.id) as DriveListedFile[];
+}
+
 export async function downloadDriveFile(
   fileId: string,
   destAbs: string,

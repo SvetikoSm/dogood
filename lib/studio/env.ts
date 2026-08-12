@@ -8,10 +8,7 @@ export function isStudioMockMode(): boolean {
 }
 
 export function getStudioLlmModel(): string {
-  return (
-    getEnvRaw("STUDIO_LLM_MODEL")?.trim() ||
-    "google/gemini-2.5-flash-preview-05-20"
-  );
+  return getEnvRaw("STUDIO_LLM_MODEL")?.trim() || "google/gemini-2.5-flash";
 }
 
 export function getStudioImageModel(): string {

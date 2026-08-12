@@ -3,6 +3,12 @@ import "server-only";
 import fs from "node:fs/promises";
 import path from "node:path";
 
+import {
+  parseOpenRouterUsage,
+  recordAiCall,
+  type AiCallContext,
+  type AiUsage,
+} from "@/lib/studio/ai/usage";
 import { getStudioImageHttpUrl, getStudioImageModel, isStudioMockMode } from "@/lib/studio/env";
 import { absoluteFromStudioRelative } from "@/lib/studio/paths";
 
@@ -13,7 +19,7 @@ export type ImageGenInput = {
 };
 
 export type ImageGenResult =
-  | { ok: true; mimeType: string; bytes: Buffer }
+  | { ok: true; mimeType: string; bytes: Buffer; usage?: AiUsage }
   | { ok: false; error: string };
 
 const MOCK_PNG_BASE64 =
@@ -172,6 +178,7 @@ export async function generateStudioImage(input: ImageGenInput): Promise<ImageGe
       body: JSON.stringify({
         model,
         modalities: ["image", "text"],
+        usage: { include: true },
         messages: [{ role: "user", content }],
         max_tokens: 8192,
       }),
@@ -188,10 +195,20 @@ export async function generateStudioImage(input: ImageGenInput): Promise<ImageGe
           "Could not extract image from model response — switch model, use STUDIO_IMAGE_HTTP_URL, or enable mock mode.",
       };
     }
-    return { ok: true, mimeType: "image/png", bytes: buf };
+    return { ok: true, mimeType: "image/png", bytes: buf, usage: parseOpenRouterUsage(raw, model) };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
   }
+}
+
+/** Same as generateStudioImage, but records the call's token/$ cost. */
+export async function generateStudioImageTracked(
+  ctx: AiCallContext,
+  input: ImageGenInput,
+): Promise<ImageGenResult> {
+  const r = await generateStudioImage(input);
+  if (r.ok) await recordAiCall(ctx, "image", r.usage);
+  return r;
 }
 
 /** Load bytes from a studio-relative artifact path (for chaining steps). */

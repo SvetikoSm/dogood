@@ -6,8 +6,8 @@ import { randomUUID } from "node:crypto";
 
 import { and, asc, eq, sql } from "drizzle-orm";
 
-import { openRouterChatJson } from "@/lib/studio/ai/openrouter-llm";
-import { generateStudioImage } from "@/lib/studio/ai/image-generation";
+import { openRouterChatJsonTracked } from "@/lib/studio/ai/openrouter-llm";
+import { generateStudioImageTracked } from "@/lib/studio/ai/image-generation";
 import { getStudioDb, schema } from "@/lib/studio/db";
 import { getStudioLlmModel, getStudioImageModel } from "@/lib/studio/env";
 import { fetchDrivePhotosForOrder } from "@/lib/studio/google/fetch-order-photos";
@@ -33,11 +33,27 @@ async function nextAttempt(orderId: string, stepKey: string): Promise<number> {
   return (r?.n ?? 0) + 1;
 }
 
+/**
+ * Read images as data URLs for LLM vision calls, downscaled to keep the
+ * request small (full-size photos made OpenRouter calls flaky and expensive).
+ * Falls back to raw bytes if sharp fails on a file.
+ */
 async function readImageUrls(absPaths: string[]): Promise<string[]> {
   const out: string[] = [];
   for (const p of absPaths) {
     try {
       const buf = await fs.readFile(p);
+      try {
+        const { default: sharp } = await import("sharp");
+        const resized = await sharp(buf)
+          .resize({ width: 1024, height: 1024, fit: "inside", withoutEnlargement: true })
+          .jpeg({ quality: 82 })
+          .toBuffer();
+        out.push(`data:image/jpeg;base64,${resized.toString("base64")}`);
+        continue;
+      } catch {
+        /* fall through to raw bytes */
+      }
       const ext = path.extname(p).toLowerCase();
       const mime =
         ext === ".png"
@@ -105,11 +121,16 @@ async function finishRun(
     .where(eq(schema.studioStepRuns.id, id));
 }
 
+/**
+ * Record the failure on the order WITHOUT changing its status.
+ * Retry/backoff and the final "error" transition are the orchestrator's job,
+ * so one transient OpenRouter/Drive failure never permanently stalls an order.
+ */
 async function failOrder(orderId: string, msg: string) {
   const db = getStudioDb();
   await db
     .update(schema.studioOrders)
-    .set({ status: "error", lastError: msg.slice(0, 4000), updatedAt: new Date() })
+    .set({ lastError: msg.slice(0, 4000), updatedAt: new Date() })
     .where(eq(schema.studioOrders.id, orderId));
 }
 
@@ -140,6 +161,13 @@ export async function runStudioStep(
   stepKey: StudioStepKey,
 ): Promise<{ ok: true; stepRunId: string } | { ok: false; error: string }> {
   const db = getStudioDb();
+  // Cost-tracked wrappers: every LLM/image call in this step is billed to
+  // (orderId, stepKey) in studio_ai_calls.
+  const runLlm = (opts: Parameters<typeof openRouterChatJsonTracked>[1]) =>
+    openRouterChatJsonTracked({ orderId, stepKey }, opts);
+  const runImg = (input: Parameters<typeof generateStudioImageTracked>[1]) =>
+    generateStudioImageTracked({ orderId, stepKey }, input);
+
   const [order] = await db
     .select()
     .from(schema.studioOrders)
@@ -201,7 +229,7 @@ export async function runStudioStep(
       `Customer: ${order.customerName}`,
     ].join("\n");
 
-    const llm = await openRouterChatJson({ system, user, imageDataUrls: urls });
+    const llm = await runLlm({ system, user, imageDataUrls: urls });
     if (!llm.ok) {
       await finishRun(runId, { status: "failed", error: llm.error, rawLlmResponseText: "" });
       await failOrder(orderId, llm.error);
@@ -226,7 +254,7 @@ export async function runStudioStep(
     const photos = await loadOrderPhotos(orderId);
     const petAbs = photos.map((p) => absoluteFromStudioRelative(p.localRelativePath));
     const runId = await insertRunStart(orderId, "dog", stepKey, attempt, { promptLen: prompt.length });
-    const gen = await generateStudioImage({
+    const gen = await runImg({
       prompt,
       referenceImagePaths: [...petAbs, ...tpl.petStyleRefAbs],
     });
@@ -262,7 +290,7 @@ export async function runStudioStep(
     const runId = await insertRunStart(orderId, "dog", stepKey, attempt, {});
     const system = await loadPromptBody(STUDIO_PROMPT_KEYS.dog_critique_llm);
     const user = `Evaluate the latest dog illustration vs pet photos and style references.\nPet name exact: ${JSON.stringify(order.petNameRaw)}`;
-    const llm = await openRouterChatJson({ system, user, imageDataUrls: urls });
+    const llm = await runLlm({ system, user, imageDataUrls: urls });
     if (!llm.ok) {
       await finishRun(runId, { status: "failed", error: llm.error });
       await failOrder(orderId, llm.error);
@@ -279,31 +307,56 @@ export async function runStudioStep(
   }
 
   if (stepKey === STUDIO_STEP_KEYS.DOG_IMG_V2_CORRECTION) {
-    let prompt = "";
-    if (order.humanRejectNote?.trim()) {
-      prompt = order.humanRejectNote.trim();
-      await db
-        .update(schema.studioOrders)
-        .set({ humanRejectNote: "", updatedAt: new Date() })
-        .where(eq(schema.studioOrders.id, orderId));
-    } else {
-      const env = await envelopeFromLatestStep(orderId, [STUDIO_STEP_KEYS.DOG_LLM_CRITIQUE]);
-      prompt = env?.prompt?.trim() ?? "";
-    }
-    if (!prompt) {
-      return { ok: false, error: "Run dog critique LLM first or provide human reject note" };
-    }
     const imgRow = await latestSuccessfulStepRun(orderId, [
       STUDIO_STEP_KEYS.DOG_IMG_V1,
       STUDIO_STEP_KEYS.DOG_IMG_V2_CORRECTION,
+      STUDIO_STEP_KEYS.DOG_IMG_V3_IDENTITY,
     ]);
     const refs: string[] = [];
     const photos = await loadOrderPhotos(orderId);
     refs.push(...photos.map((p) => absoluteFromStudioRelative(p.localRelativePath)));
     refs.push(...tpl.petStyleRefAbs);
     if (imgRow?.outputArtifactPath) refs.push(absoluteFromStudioRelative(imgRow.outputArtifactPath));
+
+    let prompt = "";
+    const note = order.humanRejectNote?.trim();
+    if (note) {
+      await db
+        .update(schema.studioOrders)
+        .set({ humanRejectNote: "", updatedAt: new Date() })
+        .where(eq(schema.studioOrders.id, orderId));
+      // Turn the reviewer's note into a proper correction prompt (the raw note
+      // is a poor image prompt on its own); fall back to the note if the LLM fails.
+      const system = await loadPromptBody(STUDIO_PROMPT_KEYS.dog_critique_llm);
+      const user = [
+        `A human reviewer rejected the current dog illustration with this comment:`,
+        `"${note}"`,
+        ``,
+        `Template slug: ${order.designSlug}`,
+        `Write a correction prompt for the image model that fixes exactly what the reviewer flagged while preserving the style, pose and everything else. Return status "needs_correction" with the prompt.`,
+      ].join("\n");
+      const llm = await runLlm({
+        system,
+        user,
+        imageDataUrls: await readImageUrls(refs),
+      });
+      if (llm.ok) {
+        const env = llm.parsed ?? parseLlmReviewEnvelope(llm.raw);
+        prompt = env?.prompt?.trim() ?? "";
+      }
+      if (!prompt) prompt = note;
+    } else {
+      const env = await envelopeFromLatestStep(orderId, [STUDIO_STEP_KEYS.DOG_LLM_CRITIQUE]);
+      prompt = env?.prompt?.trim() ?? "";
+      if (!prompt && env?.key_issues?.length) {
+        prompt = `Fix the following issues in the current illustration while keeping everything else unchanged: ${env.key_issues.join("; ")}`;
+      }
+    }
+    if (!prompt) {
+      return { ok: false, error: "Run dog critique LLM first or provide human reject note" };
+    }
     const runId = await insertRunStart(orderId, "dog", stepKey, attempt, {});
-    const gen = await generateStudioImage({ prompt, referenceImagePaths: refs });
+    const gen = await runImg({ prompt, referenceImagePaths: refs });
     if (!gen.ok) {
       await finishRun(runId, { status: "failed", error: gen.error });
       await failOrder(orderId, gen.error);
@@ -335,7 +388,7 @@ export async function runStudioStep(
     const runId = await insertRunStart(orderId, "dog", stepKey, attempt, {});
     const system = await loadPromptBody(STUDIO_PROMPT_KEYS.dog_identity_prompt_llm);
     const user = `Improve identity only. Pet name (exact): ${JSON.stringify(order.petNameRaw)}`;
-    const llm = await openRouterChatJson({ system, user, imageDataUrls: urls });
+    const llm = await runLlm({ system, user, imageDataUrls: urls });
     if (!llm.ok) {
       await finishRun(runId, { status: "failed", error: llm.error });
       await failOrder(orderId, llm.error);
@@ -366,7 +419,7 @@ export async function runStudioStep(
       refs.push(absoluteFromStudioRelative(latestDog.outputArtifactPath));
     }
     const runId = await insertRunStart(orderId, "dog", stepKey, attempt, {});
-    const gen = await generateStudioImage({ prompt, referenceImagePaths: refs });
+    const gen = await runImg({ prompt, referenceImagePaths: refs });
     if (!gen.ok) {
       await finishRun(runId, { status: "failed", error: gen.error });
       await failOrder(orderId, gen.error);
@@ -389,7 +442,7 @@ export async function runStudioStep(
 
   /* ---------- Stage B ---------- */
   if (stepKey === STUDIO_STEP_KEYS.TEXT_LLM_STYLE_PROMPT) {
-    if (!order.approvedDogArtifactPath?.trim()) {
+    if (order.mode !== "name_only" && !order.approvedDogArtifactPath?.trim()) {
       return {
         ok: false,
         error: "Approve the dog illustration first (human gate saves approvedDogArtifactPath)",
@@ -407,7 +460,7 @@ export async function runStudioStep(
       `Script hint: ${order.petNameScript}`,
       `Template: ${order.designSlug}`,
     ].join("\n");
-    const llm = await openRouterChatJson({ system, user, imageDataUrls: urls });
+    const llm = await runLlm({ system, user, imageDataUrls: urls });
     if (!llm.ok) {
       await finishRun(runId, { status: "failed", error: llm.error });
       await failOrder(orderId, llm.error);
@@ -424,14 +477,14 @@ export async function runStudioStep(
   }
 
   if (stepKey === STUDIO_STEP_KEYS.TEXT_IMG_V1) {
-    if (!order.approvedDogArtifactPath?.trim()) {
+    if (order.mode !== "name_only" && !order.approvedDogArtifactPath?.trim()) {
       return { ok: false, error: "Approve dog stage first" };
     }
     const env = await envelopeFromLatestStep(orderId, [STUDIO_STEP_KEYS.TEXT_LLM_STYLE_PROMPT]);
     const prompt = env?.prompt?.trim();
     if (!prompt) return { ok: false, error: "Run text prompt LLM first" };
     const runId = await insertRunStart(orderId, "text", stepKey, attempt, {});
-    const gen = await generateStudioImage({
+    const gen = await runImg({
       prompt,
       referenceImagePaths: [tpl.textStyleRefAbs],
     });
@@ -452,7 +505,7 @@ export async function runStudioStep(
   }
 
   if (stepKey === STUDIO_STEP_KEYS.TEXT_LLM_CRITIQUE) {
-    if (!order.approvedDogArtifactPath?.trim()) {
+    if (order.mode !== "name_only" && !order.approvedDogArtifactPath?.trim()) {
       return { ok: false, error: "Approve dog stage first" };
     }
     const imgRow = await latestSuccessfulStepRun(orderId, [STUDIO_STEP_KEYS.TEXT_IMG_V1]);
@@ -462,7 +515,7 @@ export async function runStudioStep(
     const runId = await insertRunStart(orderId, "text", stepKey, attempt, {});
     const system = await loadPromptBody(STUDIO_PROMPT_KEYS.text_critique_llm);
     const user = `Pet name exact: ${JSON.stringify(order.petNameRaw)}`;
-    const llm = await openRouterChatJson({ system, user, imageDataUrls: urls });
+    const llm = await runLlm({ system, user, imageDataUrls: urls });
     if (!llm.ok) {
       await finishRun(runId, { status: "failed", error: llm.error });
       await failOrder(orderId, llm.error);
@@ -479,26 +532,53 @@ export async function runStudioStep(
   }
 
   if (stepKey === STUDIO_STEP_KEYS.TEXT_IMG_V2_CORRECTION) {
-    if (!order.approvedDogArtifactPath?.trim()) {
+    if (order.mode !== "name_only" && !order.approvedDogArtifactPath?.trim()) {
       return { ok: false, error: "Approve dog stage first" };
     }
+    const imgRow = await latestSuccessfulStepRun(orderId, [
+      STUDIO_STEP_KEYS.TEXT_IMG_V1,
+      STUDIO_STEP_KEYS.TEXT_IMG_V2_CORRECTION,
+    ]);
+    const refs = [tpl.textStyleRefAbs];
+    if (imgRow?.outputArtifactPath) refs.push(absoluteFromStudioRelative(imgRow.outputArtifactPath));
+
     let prompt = "";
-    if (order.humanRejectNote?.trim()) {
-      prompt = order.humanRejectNote.trim();
+    const note = order.humanRejectNote?.trim();
+    if (note) {
       await db
         .update(schema.studioOrders)
         .set({ humanRejectNote: "", updatedAt: new Date() })
         .where(eq(schema.studioOrders.id, orderId));
+      const system = await loadPromptBody(STUDIO_PROMPT_KEYS.text_critique_llm);
+      const user = [
+        `A human reviewer rejected the current name artwork with this comment:`,
+        `"${note}"`,
+        ``,
+        `Pet name exact (Unicode, never translate or transliterate): ${JSON.stringify(order.petNameRaw)}`,
+        `Script hint: ${order.petNameScript}`,
+        `Template slug: ${order.designSlug}`,
+        `Write a correction prompt for the image model that fixes exactly what the reviewer flagged while keeping the reference style and the exact spelling. Return status "needs_correction" with the prompt.`,
+      ].join("\n");
+      const llm = await runLlm({
+        system,
+        user,
+        imageDataUrls: await readImageUrls(refs),
+      });
+      if (llm.ok) {
+        const env = llm.parsed ?? parseLlmReviewEnvelope(llm.raw);
+        prompt = env?.prompt?.trim() ?? "";
+      }
+      if (!prompt) prompt = note;
     } else {
       const env = await envelopeFromLatestStep(orderId, [STUDIO_STEP_KEYS.TEXT_LLM_CRITIQUE]);
       prompt = env?.prompt?.trim() ?? "";
+      if (!prompt && env?.key_issues?.length) {
+        prompt = `Fix the following issues in the current name artwork while keeping the style and the exact pet name ${JSON.stringify(order.petNameRaw)} unchanged: ${env.key_issues.join("; ")}`;
+      }
     }
     if (!prompt) return { ok: false, error: "Run text critique LLM first or provide human reject note" };
-    const imgRow = await latestSuccessfulStepRun(orderId, [STUDIO_STEP_KEYS.TEXT_IMG_V1]);
-    const refs = [tpl.textStyleRefAbs];
-    if (imgRow?.outputArtifactPath) refs.push(absoluteFromStudioRelative(imgRow.outputArtifactPath));
     const runId = await insertRunStart(orderId, "text", stepKey, attempt, {});
-    const gen = await generateStudioImage({ prompt, referenceImagePaths: refs });
+    const gen = await runImg({ prompt, referenceImagePaths: refs });
     if (!gen.ok) {
       await finishRun(runId, { status: "failed", error: gen.error });
       await failOrder(orderId, gen.error);
@@ -549,7 +629,7 @@ export async function runStudioStep(
       absoluteFromStudioRelative(order.approvedDogArtifactPath),
       absoluteFromStudioRelative(order.approvedTextArtifactPath),
     ];
-    const gen = await generateStudioImage({ prompt, referenceImagePaths: refs });
+    const gen = await runImg({ prompt, referenceImagePaths: refs });
     if (!gen.ok) {
       await finishRun(runId, { status: "failed", error: gen.error });
       await failOrder(orderId, gen.error);
@@ -588,7 +668,7 @@ export async function runStudioStep(
     const runId = await insertRunStart(orderId, "final", stepKey, attempt, {});
     const system = await loadPromptBody(STUDIO_PROMPT_KEYS.final_critique_llm);
     const user = `Evaluate final composite vs master and likeness. Pet name exact: ${JSON.stringify(order.petNameRaw)}`;
-    const llm = await openRouterChatJson({ system, user, imageDataUrls: urls });
+    const llm = await runLlm({ system, user, imageDataUrls: urls });
     if (!llm.ok) {
       await finishRun(runId, { status: "failed", error: llm.error });
       await failOrder(orderId, llm.error);
@@ -616,7 +696,7 @@ export async function runStudioStep(
     ];
     if (imgRow?.outputArtifactPath) refs.push(absoluteFromStudioRelative(imgRow.outputArtifactPath));
     const runId = await insertRunStart(orderId, "final", stepKey, attempt, {});
-    const gen = await generateStudioImage({ prompt, referenceImagePaths: refs });
+    const gen = await runImg({ prompt, referenceImagePaths: refs });
     if (!gen.ok) {
       await finishRun(runId, { status: "failed", error: gen.error });
       await failOrder(orderId, gen.error);

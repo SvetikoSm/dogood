@@ -62,4 +62,15 @@ export function getStudioSheetTabName(): string {
   return process.env.GOOGLE_SHEETS_TAB_NAME?.trim() || STUDIO_SHEET_DEFAULTS.tabName;
 }
 
-export const STUDIO_AUTO_MAX_DOG_CORRECTIONS = 3;
+/** Generation budget per stage (owner's norm: ~4 image generations per order). */
+export const STUDIO_MAX_DOG_GENERATIONS = 4;
+export const STUDIO_MAX_TEXT_GENERATIONS = 2;
+export const STUDIO_MAX_FINAL_GENERATIONS = 2;
+
+/** Automated-step failure handling: back off, then give up with an alert. */
+export const STUDIO_STEP_RETRY_BACKOFF_MINUTES = [5, 15, 60] as const;
+export const STUDIO_MAX_STEP_RETRIES = STUDIO_STEP_RETRY_BACKOFF_MINUTES.length;
+
+/** One cron tick keeps running steps until this time budget is spent. */
+export const STUDIO_TICK_BUDGET_MS = 120_000;
+export const STUDIO_TICK_LOCK_MS = 240_000;
