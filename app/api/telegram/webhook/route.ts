@@ -37,34 +37,28 @@ function afterManual(result: ManualResult) {
   if (result.triggerTick) kickTick();
 }
 
-export async function POST(req: Request) {
-  const secret = process.env.TELEGRAM_WEBHOOK_SECRET?.trim();
-  if (secret) {
-    const got = req.headers.get("x-telegram-bot-api-secret-token");
-    if (got !== secret) {
-      return NextResponse.json({ ok: false }, { status: 401 });
-    }
-  }
-
-  await ensureStudioSchema();
-
-  const body = (await req.json()) as {
-    message?: {
-      text?: string;
-      caption?: string;
-      chat?: { id?: number };
-      photo?: { file_id: string }[];
-    };
-    callback_query?: {
-      id: string;
-      data?: string;
-      message?: { chat?: { id?: number } };
-    };
+/**
+ * Telegram retries/drops webhooks that are slow or time out. Do all real work
+ * after we have already decided to ACK, and never block the HTTP response on
+ * outbound Bot API calls longer than necessary.
+ */
+async function processUpdate(body: {
+  message?: {
+    text?: string;
+    caption?: string;
+    chat?: { id?: number };
+    photo?: { file_id: string }[];
   };
+  callback_query?: {
+    id: string;
+    data?: string;
+    message?: { chat?: { id?: number } };
+  };
+}) {
+  await ensureStudioSchema();
 
   const token = process.env.TELEGRAM_BOT_TOKEN?.trim();
 
-  // --- Inline button presses ---
   const cb = body.callback_query;
   if (cb?.id) {
     const chatId = cb.message?.chat?.id ?? process.env.TELEGRAM_CHAT_ID?.trim();
@@ -72,7 +66,6 @@ export async function POST(req: Request) {
     if (cb.data && /^(mm:|ms:|mg$|mn$|mx$)/.test(cb.data) && chatId) {
       const r = await handleManualCallback(String(chatId), cb.data);
       afterManual(r);
-      // manual-flow sends its own messages
     } else if (cb.data) {
       reply = await handleTelegramCallback(cb.data);
     }
@@ -84,38 +77,58 @@ export async function POST(req: Request) {
       });
     }
     if (chatId && reply) await sendReply(chatId, reply);
-    return NextResponse.json({ ok: true });
+    return;
   }
 
   const msg = body.message;
   const chatId = msg?.chat?.id ?? process.env.TELEGRAM_CHAT_ID?.trim();
 
-  // --- Photo messages (manual dog / pack upload; caption may be the pet name) ---
   if (msg?.photo?.length && chatId) {
     const largest = msg.photo[msg.photo.length - 1];
     const r = await handleManualPhoto(String(chatId), largest.file_id, msg.caption);
     afterManual(r);
-    return NextResponse.json({ ok: true });
+    return;
   }
 
-  // --- Text messages ---
   const text = msg?.text?.trim();
-  if (!text || !chatId) return NextResponse.json({ ok: true });
+  if (!text || !chatId) return;
 
-  if (/^\/(menu|start)\b/.test(text)) {
+  if (/^\/(menu|start)(@\w+)?\b/.test(text)) {
     await sendStudioMenu(String(chatId));
-    return NextResponse.json({ ok: true });
+    return;
   }
 
-  // If we're mid manual-flow waiting for a name, this text is the name.
   const manual = await handleManualText(String(chatId), text);
   if (manual.handled) {
     afterManual(manual);
-    return NextResponse.json({ ok: true });
+    return;
   }
 
-  // Otherwise: typed approve/reject commands.
   const reply = await handleTelegramCommand(text);
   if (reply) await sendReply(chatId, reply);
+}
+
+export async function POST(req: Request) {
+  const secret = process.env.TELEGRAM_WEBHOOK_SECRET?.trim();
+  if (secret) {
+    const got = req.headers.get("x-telegram-bot-api-secret-token");
+    if (got !== secret) {
+      return NextResponse.json({ ok: false }, { status: 401 });
+    }
+  }
+
+  let body: Parameters<typeof processUpdate>[0];
+  try {
+    body = (await req.json()) as Parameters<typeof processUpdate>[0];
+  } catch {
+    return NextResponse.json({ ok: false, error: "bad json" }, { status: 400 });
+  }
+
+  // ACK immediately so Telegram does not mark the webhook as timed out.
+  // Work continues on the Node process (Docker/VPS is long-lived).
+  void processUpdate(body).catch((e) =>
+    console.error("[telegram webhook] process", e),
+  );
+
   return NextResponse.json({ ok: true });
 }
