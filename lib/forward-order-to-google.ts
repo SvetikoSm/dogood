@@ -12,6 +12,8 @@ export type GoogleWebhookSummary = {
   fileCount?: number;
   filesReceived?: number;
   uploadErrors?: { field?: string; error?: string }[];
+  /** Не удалось выставить «доступ по ссылке» — файлы при этом загружены. */
+  sharingErrors?: { field?: string; error?: string }[];
   driveError?: string | null;
   duplicateSkipped?: boolean;
   duplicatePhotoMerge?: boolean;
@@ -28,6 +30,7 @@ type WebhookJson = {
   fileCount?: number;
   filesReceived?: number;
   uploadErrors?: { field?: string; error?: string }[];
+  sharingErrors?: { field?: string; error?: string }[];
   driveError?: string | null;
   duplicateSkipped?: boolean;
   duplicatePhotoMerge?: boolean;
@@ -36,16 +39,20 @@ type WebhookJson = {
 
 function summarizeWebhookJson(parsed: WebhookJson | null): GoogleWebhookSummary | undefined {
   if (!parsed || typeof parsed !== "object") return undefined;
-  const uploadErrors = parsed.uploadErrors?.length
-    ? parsed.uploadErrors.slice(0, 20).map((e) => ({
-        field: e.field,
-        error: e.error ? String(e.error).slice(0, 400) : "",
-      }))
-    : undefined;
+  const trimIssues = (list: { field?: string; error?: string }[] | undefined) =>
+    list?.length
+      ? list.slice(0, 20).map((e) => ({
+          field: e.field,
+          error: e.error ? String(e.error).slice(0, 400) : "",
+        }))
+      : undefined;
+  const uploadErrors = trimIssues(parsed.uploadErrors);
+  const sharingErrors = trimIssues(parsed.sharingErrors);
   return {
     fileCount: typeof parsed.fileCount === "number" ? parsed.fileCount : undefined,
     filesReceived: typeof parsed.filesReceived === "number" ? parsed.filesReceived : undefined,
     uploadErrors,
+    sharingErrors,
     driveError: parsed.driveError != null ? String(parsed.driveError).slice(0, 800) : undefined,
     duplicateSkipped: parsed.duplicateSkipped === true,
     duplicatePhotoMerge: parsed.duplicatePhotoMerge === true,

@@ -240,11 +240,22 @@ function doPost(e) {
     var orderFolder = null;
     var driveError = null;
     var uploadErrors = [];
+    var sharingErrors = [];
 
     try {
-      var rootFolder = DriveApp.getFolderById(folderId);
+      var rootFolder = DriveApp.getFolderById(extractDriveFolderIdFromUrl_(folderId) || folderId);
       orderFolder = rootFolder.createFolder(order.orderId || "order");
-      orderFolder.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+      trySetAnyoneWithLink_(orderFolder, sharingErrors, "orderFolder");
+
+      /* Ссылку на папку пишем сразу: если что-то ниже упадёт, она уже в таблице.
+       * В свой try — чтобы сбой записи в ячейку не оборвал загрузку фото. */
+      if (colFolder > 0) {
+        try {
+          sheet.getRange(firstDataRow, colFolder).setValue(orderFolder.getUrl());
+        } catch (folderCellErr) {
+          uploadErrors.push({ field: "folderCell", error: String(folderCellErr).slice(0, 400) });
+        }
+      }
 
       for (var fi = 0; fi < files.length; fi++) {
         var f = files[fi];
@@ -262,7 +273,7 @@ function doPost(e) {
           var name = safeDriveFileName_(f.originalName || "photo.jpg");
           var blob = Utilities.newBlob(bytes, mime, name);
           var driveFile = orderFolder.createFile(blob);
-          driveFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+          trySetAnyoneWithLink_(driveFile, sharingErrors, f.field || String(fi));
           var viewUrl = drivePublicViewUrl(driveFile.getId());
           fileLinks.push(viewUrl);
 
@@ -273,10 +284,6 @@ function doPost(e) {
         } catch (oneFileErr) {
           uploadErrors.push({ field: f && f.field ? f.field : String(fi), error: String(oneFileErr) });
         }
-      }
-
-      if (orderFolder && colFolder > 0) {
-        sheet.getRange(firstDataRow, colFolder).setValue(orderFolder.getUrl());
       }
 
       for (var ur = 0; ur < items.length; ur++) {
@@ -298,6 +305,7 @@ function doPost(e) {
       fileCount: fileLinks.length,
       filesReceived: files.length,
       uploadErrors: uploadErrors,
+      sharingErrors: sharingErrors,
       driveError: driveError,
     });
   } catch (err) {
@@ -360,6 +368,27 @@ function safeDriveFileName_(originalName) {
   return n || "photo.jpg";
 }
 
+/**
+ * Публичная ссылка «любой, у кого есть ссылка» — НЕОБЯЗАТЕЛЬНЫЙ шаг.
+ *
+ * Политики Google (домена или аккаунта) могут запрещать такое расшаривание, и тогда
+ * setSharing бросает «Доступ запрещен: DriveApp». Раньше это исключение вылетало в общий
+ * catch и обрывало ВЕСЬ блок Drive — папка создавалась, а фото не загружалось ни одно
+ * (fileCount=0 при filesReceived=3). Теперь ошибка расшаривания только записывается
+ * в sharingErrors: файлы всё равно попадают в папку, владелец их видит.
+ */
+function trySetAnyoneWithLink_(driveItem, sharingErrors, label) {
+  try {
+    driveItem.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    return true;
+  } catch (shareErr) {
+    if (sharingErrors) {
+      sharingErrors.push({ field: label || "", error: String(shareErr).slice(0, 400) });
+    }
+    return false;
+  }
+}
+
 function extractDriveFolderIdFromUrl_(input) {
   var u = String(input || "").trim();
   if (!u) return "";
@@ -384,6 +413,7 @@ function mergePhotosIntoExistingOrder_(sheet, firstDataRow, order, files, parent
   var itemLinksMap = {};
   var fileLinks = [];
   var uploadErrors = [];
+  var sharingErrors = [];
   var driveError = null;
   var orderFolder = null;
 
@@ -394,9 +424,11 @@ function mergePhotosIntoExistingOrder_(sheet, firstDataRow, order, files, parent
     if (fid) {
       orderFolder = DriveApp.getFolderById(fid);
     } else {
-      var rootFolder = DriveApp.getFolderById(parentFolderId);
+      var rootFolder = DriveApp.getFolderById(
+        extractDriveFolderIdFromUrl_(parentFolderId) || parentFolderId,
+      );
       orderFolder = rootFolder.createFolder(order.orderId || "order");
-      orderFolder.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+      trySetAnyoneWithLink_(orderFolder, sharingErrors, "orderFolder");
       if (colFolder > 0) sheet.getRange(firstDataRow, colFolder).setValue(orderFolder.getUrl());
     }
 
@@ -416,7 +448,7 @@ function mergePhotosIntoExistingOrder_(sheet, firstDataRow, order, files, parent
         var name = safeDriveFileName_(f.originalName || "photo.jpg");
         var blob = Utilities.newBlob(bytes, mime, name);
         var driveFile = orderFolder.createFile(blob);
-        driveFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+        trySetAnyoneWithLink_(driveFile, sharingErrors, f.field || String(fi));
         var viewUrl = drivePublicViewUrl(driveFile.getId());
         fileLinks.push(viewUrl);
         var itemIndex = parsePhotoFieldLineIndex_(f.field);
@@ -452,6 +484,7 @@ function mergePhotosIntoExistingOrder_(sheet, firstDataRow, order, files, parent
     fileCount: fileLinks.length,
     filesReceived: files.length,
     uploadErrors: uploadErrors,
+    sharingErrors: sharingErrors,
     driveError: driveError,
   });
 }
