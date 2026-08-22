@@ -28,9 +28,11 @@ if (Test-Path $SaJson) {
 $remote = @'
 set -e
 cd /opt/dogood
-# Discard local edits on the VPS that block git pull (cron script etc. come from the repo).
-git stash push -u -m "deploy-auto-stash $(date -Iseconds)" || true
-git pull origin main
+# VPS must match origin exactly. Local edits (e.g. cron script) blocked pull
+# even when `git stash` reported nothing to save — reset is the reliable fix.
+# Untracked files (.env.production, data/) are kept; only tracked files reset.
+git fetch origin main
+git reset --hard origin/main
 node /tmp/patch-env-production.mjs .env.production __SA_ARG__ /tmp/dogood-secrets.env
 rm -f /tmp/dogood-sa.json /tmp/dogood-secrets.env
 docker build -t dogood-v2 .
