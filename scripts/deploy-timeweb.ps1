@@ -64,4 +64,9 @@ $remote = $remote.Replace('__SA_ARG__', $SaArg)
 
 Write-Host "Deploying on server (enter the root password when prompted)..."
 ssh $Server $remote
-Write-Host "Done. Check https://dogood-brand.ru"
+# ssh is a native command, so $ErrorActionPreference does not catch its failure:
+# check the exit code explicitly or a failed deploy still prints "Done".
+if ($LASTEXITCODE -ne 0) {
+  throw "DEPLOY FAILED (ssh exit $LASTEXITCODE). Nothing was released - read the server output above."
+}
+Write-Host "Deploy OK. Check https://dogood-brand.ru"
