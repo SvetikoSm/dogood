@@ -135,7 +135,9 @@ try {
 
   const code = (await rl.question("Введите код из СМС: ")).trim();
 
-  const auth = await post("/v2/auth/challenge/sms/verify", {
+  // start is /v2/..., verify is /v1/... — confirmed against the official
+  // lknpd clients (tolikproh/npd, mityayka1/lknpd-nalog-api-ts).
+  const auth = await post("/v1/auth/challenge/sms/verify", {
     phone,
     code,
     challengeToken: challenge.challengeToken,
