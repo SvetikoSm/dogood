@@ -30,7 +30,13 @@ YOOKASSA_SECRET_KEY=live_...
 YOOKASSA_ENABLED=false   # включить после настройки уведомлений (шаг 4)
 ```
 
-## 3. Вебхук Telegram
+> **Важно (актуальное состояние):** вебхуки НЕ используются — серверы Telegram
+> не могут достучаться до VPS (inbound «Connection timed out»). Вместо этого оба
+> бота обслуживает поллер `scripts/telegram-server-poller.mjs`, установленный на
+> VPS как systemd-сервис `dogood-tg-poller` (ставится автоматически при деплое).
+> Статус на сервере: `systemctl status dogood-tg-poller`.
+
+## 3. Вебхук Telegram (не используется, см. выше)
 
 После деплоя (или на живом сервере):
 

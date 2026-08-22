@@ -44,21 +44,16 @@ sleep 8
 SECRET=$(grep '^STUDIO_CRON_SECRET=' .env.production | cut -d= -f2-)
 curl -fsS -X POST -H "Authorization: Bearer $SECRET" http://127.0.0.1:3000/api/studio/templates/sync-drive || echo 'template sync failed - rerun after boot'
 bash /tmp/install-studio-cron.sh
-TB=$(grep '^TELEGRAM_BOT_TOKEN=' .env.production | cut -d= -f2-)
-TW=$(grep '^TELEGRAM_WEBHOOK_SECRET=' .env.production | cut -d= -f2-)
-curl -fsS "https://api.telegram.org/bot${TB}/setWebhook?url=https://dogood-brand.ru/api/telegram/webhook&secret_token=${TW}" || true
-# Fair-event client bot webhook (only if the token is configured)
-CT=$(grep '^TELEGRAM_CLIENT_BOT_TOKEN=' .env.production | cut -d= -f2-)
-CW=$(grep '^TELEGRAM_CLIENT_WEBHOOK_SECRET=' .env.production | cut -d= -f2-)
-if [ -n "$CT" ]; then
-  curl -fsS "https://api.telegram.org/bot${CT}/setWebhook?url=https://dogood-brand.ru/api/telegram/client-webhook&secret_token=${CW}" || true
-fi
+# Telegram cannot reach this VPS inbound (webhooks time out), so both bots run
+# through a server-side getUpdates poller instead. It deletes the webhooks itself.
+bash scripts/install-telegram-poller.sh
 bash scripts/install-nginx-dogood.sh || true
 docker ps --filter name=dogood
 curl -sI http://127.0.0.1:3000 | head -n 3
-# Fail loudly if the new fair routes are missing (deploy incomplete).
-curl -fsS -o /dev/null -w "yookassa-webhook:%{http_code}\n" -X POST http://127.0.0.1:3000/api/payments/yookassa/webhook -H "Content-Type: application/json" -d '{}' || echo 'yookassa-webhook:MISSING'
-curl -fsS -o /dev/null -w "client-webhook:%{http_code}\n" -X POST http://127.0.0.1:3000/api/telegram/client-webhook -H "Content-Type: application/json" -d '{}' || echo 'client-webhook:MISSING'
+# Route smoke checks (no custom headers: they get mangled by PS->ssh quoting).
+# Expected: yookassa 200/400, client-webhook 401/503. Only 404 means a bad deploy.
+curl -s -o /dev/null -w "yookassa-webhook:%{http_code}\n" -X POST -d '{}' http://127.0.0.1:3000/api/payments/yookassa/webhook
+curl -s -o /dev/null -w "client-webhook:%{http_code}\n" -X POST -d '{}' http://127.0.0.1:3000/api/telegram/client-webhook
 '@
 $remote = $remote.Replace('__SA_ARG__', $SaArg)
 
