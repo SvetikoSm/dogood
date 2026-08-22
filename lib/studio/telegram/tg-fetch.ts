@@ -65,11 +65,27 @@ const fragmentedAgent = new Agent({
   },
 });
 
-/** Drop-in замена глобального fetch для запросов к api.telegram.org. */
+/**
+ * Drop-in замена глобального fetch для запросов к api.telegram.org.
+ *
+ * Сетевые сбои ретраятся до 3 раз: даже с фрагментацией провайдер изредка
+ * роняет сам TCP-connect (~1 раз в несколько минут), а потерянный ответ
+ * клиенту (макет, ссылка на оплату, чек) стоит дороже пары секунд ожидания.
+ * HTTP-ошибки (4xx/5xx от Telegram) не ретраятся — их разбирает вызывающий код.
+ */
 export async function tgFetch(url: string, init?: RequestInit): Promise<Response> {
-  const res = await undiciFetch(url, {
-    ...(init as Parameters<typeof undiciFetch>[1]),
-    dispatcher: fragmentedAgent,
-  } as Parameters<typeof undiciFetch>[1]);
-  return res as unknown as Response;
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const res = await undiciFetch(url, {
+        ...(init as Parameters<typeof undiciFetch>[1]),
+        dispatcher: fragmentedAgent,
+      } as Parameters<typeof undiciFetch>[1]);
+      return res as unknown as Response;
+    } catch (e) {
+      lastError = e;
+      if (attempt < 3) await new Promise((r) => setTimeout(r, attempt * 1500));
+    }
+  }
+  throw lastError;
 }
