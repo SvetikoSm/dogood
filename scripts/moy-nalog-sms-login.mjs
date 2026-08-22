@@ -11,8 +11,11 @@
  */
 import { randomUUID } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
+import net from "node:net";
 import { resolve } from "node:path";
 import readline from "node:readline/promises";
+import https from "node:https";
+import tls from "node:tls";
 
 const API = "https://lknpd.nalog.ru/api";
 
@@ -27,8 +30,71 @@ const deviceInfo = {
   },
 };
 
+// lknpd.nalog.ru sits behind DPI that blocks Node's TLS ClientHello on
+// connect (fetch/https.request both hang and time out), while curl and
+// browsers reach the same IP fine. Splitting the first TLS record into two
+// small TCP writes defeats simple SNI-matching DPI. See lib/payments/dpi-safe-fetch.ts
+// for the same trick used by the deployed app.
+class FragmentedHelloAgent extends https.Agent {
+  createConnection(options, callback) {
+    const socket = net.connect({ host: options.host, port: options.port ?? 443 });
+    socket.setNoDelay(true);
+    let helloSent = false;
+    const rawWrite = socket.write.bind(socket);
+    socket.write = (data, encoding, cb) => {
+      if (!helloSent && Buffer.isBuffer(data) && data.length > 20) {
+        helloSent = true;
+        rawWrite(data.subarray(0, 5));
+        return rawWrite(data.subarray(5), encoding, cb);
+      }
+      return rawWrite(data, encoding, cb);
+    };
+    const tlsSocket = tls.connect({ socket, servername: options.servername ?? options.host });
+    if (callback) {
+      tlsSocket.once("secureConnect", () => callback(null, tlsSocket));
+      tlsSocket.once("error", (err) => callback(err));
+    }
+    return tlsSocket;
+  }
+}
+const dpiSafeAgent = new FragmentedHelloAgent({ keepAlive: false });
+
+async function dpiSafeFetch(url, init = {}) {
+  const u = new URL(url);
+  const bodyBuf = init.body !== undefined ? Buffer.from(init.body) : undefined;
+  return new Promise((resolvePromise, reject) => {
+    const req = https.request(
+      {
+        agent: dpiSafeAgent,
+        hostname: u.hostname,
+        port: u.port ? Number(u.port) : 443,
+        path: `${u.pathname}${u.search}`,
+        method: init.method ?? "GET",
+        headers: { ...(bodyBuf ? { "Content-Length": String(bodyBuf.length) } : {}), ...init.headers },
+      },
+      (res) => {
+        const chunks = [];
+        res.on("data", (c) => chunks.push(c));
+        res.on("end", () => {
+          const status = res.statusCode ?? 0;
+          resolvePromise({
+            ok: status >= 200 && status < 300,
+            status,
+            text: async () => Buffer.concat(chunks).toString("utf8"),
+          });
+        });
+        res.socket?.on("error", () => {});
+      },
+    );
+    req.on("error", reject);
+    req.setTimeout(15000, () => req.destroy(new Error("timeout")));
+    if (bodyBuf) req.write(bodyBuf);
+    req.end();
+  });
+}
+
 async function post(path, body) {
-  const res = await fetch(`${API}${path}`, {
+  const res = await dpiSafeFetch(`${API}${path}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),

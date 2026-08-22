@@ -2,6 +2,7 @@ import "server-only";
 
 import { randomUUID } from "node:crypto";
 
+import { dpiSafeFetch } from "@/lib/payments/dpi-safe-fetch";
 import { isStudioMockMode } from "@/lib/studio/env";
 import { getEnvRaw } from "@/lib/studio/runtime-env";
 
@@ -69,7 +70,7 @@ async function authWithPassword(): Promise<{ ok: true } | { ok: false; error: st
   const inn = getEnvRaw("MOY_NALOG_INN")?.trim() ?? "";
   const password = getEnvRaw("MOY_NALOG_PASSWORD")?.trim() ?? "";
   try {
-    const res = await fetch(`${API_BASE}/auth/lkfl`, {
+    const res = await dpiSafeFetch(`${API_BASE}/auth/lkfl`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ username: inn, password, deviceInfo }),
@@ -89,13 +90,13 @@ async function refreshAuth(): Promise<boolean> {
   if (!cachedRefreshToken) cachedRefreshToken = getEnvRaw("MOY_NALOG_REFRESH_TOKEN")?.trim() ?? "";
   if (!cachedRefreshToken) return false;
   try {
-    const res = await fetch(`${API_BASE}/auth/token`, {
+    const res = await dpiSafeFetch(`${API_BASE}/auth/token`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ deviceInfo, refreshToken: cachedRefreshToken }),
     });
     if (!res.ok) return false;
-    return rememberAuth((await res.json()) as AuthResponse);
+    return rememberAuth(JSON.parse(await res.text()) as AuthResponse);
   } catch {
     return false;
   }
@@ -168,7 +169,7 @@ export async function registerFairIncome(
   };
 
   const post = async (token: string) =>
-    fetch(`${API_BASE}/income`, {
+    dpiSafeFetch(`${API_BASE}/income`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
       body: JSON.stringify(body),
