@@ -1,10 +1,14 @@
-# Deploy DoGood to the Timeweb VPS: git pull + docker rebuild + Studio cron + Telegram webhook.
-# You will be prompted for the root SSH password a few times (each scp + the ssh run).
+# Deploy DoGood to the Timeweb VPS: git pull + docker rebuild + Studio cron + Telegram poller.
 #   .\scripts\deploy-timeweb.ps1
+# Uses the ~/.ssh/dogood_timeweb key when present (no password prompts);
+# otherwise you will be prompted for the root password on each scp/ssh.
 
 $ErrorActionPreference = "Stop"
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
 $Server = "root@72.56.39.162"
+$SshKey = Join-Path $env:USERPROFILE ".ssh\dogood_timeweb"
+$SshOpts = @()
+if (Test-Path $SshKey) { $SshOpts = @("-i", $SshKey) }
 
 Set-Location $ProjectRoot
 
@@ -12,15 +16,15 @@ $EnvLocal = Join-Path $ProjectRoot ".env.local"
 if (-not (Test-Path $EnvLocal)) { throw ".env.local not found at $EnvLocal" }
 
 Write-Host "Uploading env + helper scripts to server..."
-scp $EnvLocal "${Server}:/tmp/dogood-secrets.env"
-scp (Join-Path $PSScriptRoot "patch-env-production.mjs") "${Server}:/tmp/patch-env-production.mjs"
-scp (Join-Path $PSScriptRoot "install-studio-cron.sh") "${Server}:/tmp/install-studio-cron.sh"
+scp @SshOpts $EnvLocal "${Server}:/tmp/dogood-secrets.env"
+scp @SshOpts (Join-Path $PSScriptRoot "patch-env-production.mjs") "${Server}:/tmp/patch-env-production.mjs"
+scp @SshOpts (Join-Path $PSScriptRoot "install-studio-cron.sh") "${Server}:/tmp/install-studio-cron.sh"
 
 # Optional clean single-line SA JSON. If absent, we rely on GOOGLE_SERVICE_ACCOUNT_JSON in .env.local.
 $SaJson = Join-Path $env:USERPROFILE "Downloads\_sa-extracted.json"
 $SaArg = '""'
 if (Test-Path $SaJson) {
-  scp $SaJson "${Server}:/tmp/dogood-sa.json"
+  scp @SshOpts $SaJson "${Server}:/tmp/dogood-sa.json"
   $SaArg = "/tmp/dogood-sa.json"
 }
 
@@ -44,6 +48,9 @@ sleep 8
 SECRET=$(grep '^STUDIO_CRON_SECRET=' .env.production | cut -d= -f2-)
 curl -fsS -X POST -H "Authorization: Bearer $SECRET" http://127.0.0.1:3000/api/studio/templates/sync-drive || echo 'template sync failed - rerun after boot'
 bash /tmp/install-studio-cron.sh
+# The provider blocks most Telegram subnets outbound: pin api.telegram.org to a
+# reachable IP (host + container) and keep it fresh via a systemd timer.
+bash scripts/tg-ip-pin.sh install
 # Telegram cannot reach this VPS inbound (webhooks time out), so both bots run
 # through a server-side getUpdates poller instead. It deletes the webhooks itself.
 bash scripts/install-telegram-poller.sh
@@ -57,8 +64,8 @@ curl -s -o /dev/null -w "client-webhook:%{http_code}\n" -X POST -d '{}' http://1
 '@
 $remote = $remote.Replace('__SA_ARG__', $SaArg)
 
-Write-Host "Deploying on server (enter the root password when prompted)..."
-ssh $Server $remote
+Write-Host "Deploying on server..."
+ssh @SshOpts $Server $remote
 # ssh is a native command, so $ErrorActionPreference does not catch its failure:
 # check the exit code explicitly or a failed deploy still prints "Done".
 if ($LASTEXITCODE -ne 0) {

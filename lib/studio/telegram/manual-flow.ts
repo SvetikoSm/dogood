@@ -9,6 +9,7 @@ import type { StyleSlug } from "@/lib/ops/style-masters";
 import { getStudioDb, schema } from "@/lib/studio/db";
 import { inferPetNameScript } from "@/lib/studio/script-detect";
 import { downloadTelegramFileToOrder as downloadTelegramFileToOrderShared } from "@/lib/studio/telegram/download-photo";
+import { tgFetch } from "@/lib/studio/telegram/tg-fetch";
 
 const BOT_API = "https://api.telegram.org";
 
@@ -23,7 +24,7 @@ type ManualFlow = "dog" | "name" | "pack";
 async function tgSend(chatId: string, text: string, keyboard?: InlineKeyboard) {
   const t = token();
   if (!t) return;
-  await fetch(`${BOT_API}/bot${t}/sendMessage`, {
+  await tgFetch(`${BOT_API}/bot${t}/sendMessage`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({

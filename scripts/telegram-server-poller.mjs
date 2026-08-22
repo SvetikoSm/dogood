@@ -11,6 +11,9 @@
  *   node scripts/telegram-server-poller.mjs /opt/dogood/.env.production
  */
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
+import https from "node:https";
+import net from "node:net";
+import tls from "node:tls";
 
 const envPath = process.argv[2] || "/opt/dogood/.env.production";
 const APP = "http://127.0.0.1:3000";
@@ -62,17 +65,66 @@ function saveOffsets() {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-async function tg(bot, method, params = "") {
-  const controller = new AbortController();
-  const t = setTimeout(() => controller.abort(), 40_000);
-  try {
-    const res = await fetch(`https://api.telegram.org/bot${bot.token}/${method}${params}`, {
-      signal: controller.signal,
-    });
-    return { status: res.status, body: await res.json().catch(() => null) };
-  } finally {
-    clearTimeout(t);
+/**
+ * The VPS provider's DPI throttles Node's TLS ClientHello to api.telegram.org
+ * (curl works, plain fetch flaps with connect timeouts). Splitting the first
+ * TLS record into two TCP writes defeats the filter — same trick as
+ * lib/studio/telegram/tg-fetch.ts in the app container.
+ */
+class FragmentedHelloAgent extends https.Agent {
+  createConnection(options, callback) {
+    const host = String(options.host ?? "");
+    const socket = net.connect({ host, port: Number(options.port ?? 443) });
+    socket.setNoDelay(true);
+
+    let helloSent = false;
+    const rawWrite = socket.write.bind(socket);
+    socket.write = (data, encoding, cb) => {
+      if (!helloSent && Buffer.isBuffer(data) && data.length > 20) {
+        helloSent = true;
+        rawWrite(data.subarray(0, 5));
+        return rawWrite(data.subarray(5), encoding, cb);
+      }
+      return rawWrite(data, encoding, cb);
+    };
+
+    const tlsSocket = tls.connect({ socket, servername: options.servername ?? host });
+    if (callback) {
+      tlsSocket.once("secureConnect", () => callback(null, tlsSocket));
+      tlsSocket.once("error", (err) => callback(err, tlsSocket));
+    }
+    return tlsSocket;
   }
+}
+const tgAgent = new FragmentedHelloAgent({ keepAlive: false });
+
+async function tg(bot, method, params = "") {
+  return new Promise((resolve, reject) => {
+    const req = https.request(
+      {
+        agent: tgAgent,
+        hostname: "api.telegram.org",
+        path: `/bot${bot.token}/${method}${params}`,
+        method: "GET",
+      },
+      (res) => {
+        const chunks = [];
+        res.on("data", (c) => chunks.push(c));
+        res.on("end", () => {
+          let body = null;
+          try {
+            body = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+          } catch {}
+          resolve({ status: res.statusCode ?? 0, body });
+        });
+        res.socket?.on("error", () => {});
+      },
+    );
+    req.on("error", reject);
+    // getUpdates long-polls for 25s server-side; kill anything slower than 40s.
+    req.setTimeout(40_000, () => req.destroy(new Error("tg request timeout")));
+    req.end();
+  });
 }
 
 /** POST one update into the local app; retry until the app accepts it. */

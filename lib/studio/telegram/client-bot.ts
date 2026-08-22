@@ -4,6 +4,7 @@ import fs from "node:fs/promises";
 
 import { isStudioMockMode } from "@/lib/studio/env";
 import { getEnvRaw } from "@/lib/studio/runtime-env";
+import { tgFetch } from "@/lib/studio/telegram/tg-fetch";
 
 const BOT_API = "https://api.telegram.org";
 
@@ -25,7 +26,7 @@ export async function clientSend(chatId: string, text: string, keyboard?: Inline
   const t = clientBotToken();
   if (!t) return;
   try {
-    await fetch(`${BOT_API}/bot${t}/sendMessage`, {
+    await tgFetch(`${BOT_API}/bot${t}/sendMessage`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ chat_id: chatId, text, reply_markup: keyboard }),
@@ -54,7 +55,7 @@ export async function clientSendPhoto(
     form.append("caption", caption.slice(0, 900));
     if (keyboard) form.append("reply_markup", JSON.stringify(keyboard));
     form.append("photo", new Blob([buf]), "mockup.png");
-    const res = await fetch(`${BOT_API}/bot${t}/sendPhoto`, { method: "POST", body: form });
+    const res = await tgFetch(`${BOT_API}/bot${t}/sendPhoto`, { method: "POST", body: form });
     if (!res.ok) return { ok: false, error: await res.text() };
     return { ok: true };
   } catch (e) {
@@ -67,7 +68,7 @@ export async function clientAnswerCallback(callbackQueryId: string, text = ""): 
   const t = clientBotToken();
   if (!t) return;
   try {
-    await fetch(`${BOT_API}/bot${t}/answerCallbackQuery`, {
+    await tgFetch(`${BOT_API}/bot${t}/answerCallbackQuery`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ callback_query_id: callbackQueryId, text: text.slice(0, 190) }),

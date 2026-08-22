@@ -1,3 +1,5 @@
+import { tgFetch } from "@/lib/studio/telegram/tg-fetch";
+
 type TelegramSendResult = { ok: true } | { ok: false; error: string };
 
 export async function sendTelegramText(text: string): Promise<TelegramSendResult> {
@@ -9,7 +11,7 @@ export async function sendTelegramText(text: string): Promise<TelegramSendResult
 
   const url = `https://api.telegram.org/bot${encodeURIComponent(token)}/sendMessage`;
   try {
-    const res = await fetch(url, {
+    const res = await tgFetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
