@@ -43,6 +43,12 @@ bash /tmp/install-studio-cron.sh
 TB=$(grep '^TELEGRAM_BOT_TOKEN=' .env.production | cut -d= -f2-)
 TW=$(grep '^TELEGRAM_WEBHOOK_SECRET=' .env.production | cut -d= -f2-)
 curl -fsS "https://api.telegram.org/bot${TB}/setWebhook?url=https://dogood-brand.ru/api/telegram/webhook&secret_token=${TW}" || true
+# Fair-event client bot webhook (only if the token is configured)
+CT=$(grep '^TELEGRAM_CLIENT_BOT_TOKEN=' .env.production | cut -d= -f2-)
+CW=$(grep '^TELEGRAM_CLIENT_WEBHOOK_SECRET=' .env.production | cut -d= -f2-)
+if [ -n "$CT" ]; then
+  curl -fsS "https://api.telegram.org/bot${CT}/setWebhook?url=https://dogood-brand.ru/api/telegram/client-webhook&secret_token=${CW}" || true
+fi
 bash scripts/install-nginx-dogood.sh || true
 docker ps --filter name=dogood
 curl -sI http://127.0.0.1:3000 | head -n 3
