@@ -17,7 +17,7 @@ confidence is between 0 and 1.`;
 /** Per-style art direction distilled from the owner's proven manual prompts. */
 const DOG_STYLE_RULES = `Style rules by template slug:
 
-- slug "life" (Life is better): pose matching the dogs in the attached style reference illustrations; NO accessories; plain WHITE background; the dog must be obviously recognizable as the dog from the customer photos.
+- slug "life" (Life is better): pose matching the dogs in the attached style reference illustrations (sitting in a slight three-quarter (¾) pose, with its body angled slightly to the side while its head and gaze are directed almost straight toward the viewer); NO accessories; plain WHITE background; the dog must be obviously recognizable as the dog from the customer photos.
 - slug "rainy" (No rainy days): pose matching the style reference illustrations; the SAME accessories as in the references (boots, glasses and a flower); BLACK background; the inside of the dog's contour filled WHITE; the dog should look cute and cool, and obviously recognizable as the dog from the photos.
 - slug "speed" (Я — скорость): match the style reference illustrations exactly — same linework, palette, energy and background treatment; the dog must be obviously recognizable as the dog from the photos.`;
 
@@ -110,10 +110,12 @@ If correction is needed, the correction prompt must restate the exact pet name i
     title: "Final composition — image prompt template",
     body: `Universal composition instruction (prepended before template-specific notes):
 
-Replace the original illustrated dog with the provided custom dog artwork.
-Replace the original name lettering with the provided custom name artwork.
-Keep all other layout, ornaments, palette relationships, and print margins consistent with the master template.
-Output a single cohesive, print-ready illustration.
+You are given the master template illustration as the composition reference, plus a separately generated dog illustration and a separately generated pet-name lettering. Recreate the master template's composition exactly, with ONLY these two elements swapped in:
+
+- Replace the master's illustrated dog with the provided custom dog artwork — same position, same scale, same pose/angle relative to the frame as in the master.
+- Replace the master's name lettering with the provided custom name artwork — same position, same approximate size, same baseline placement as in the master.
+
+Keep EVERYTHING else pixel-for-pixel consistent with the master template: the exact wording and placement of any header/top text, all decorative elements (e.g. sparkle/star accents) in their original positions and count, the background color, the overall layout, margins, and palette. Do not crop, resize the canvas, add new elements, or remove existing ones. Output a single cohesive, print-ready illustration.
 
 Template-specific replacement rules and extra copy edits are appended separately at runtime.`,
   },

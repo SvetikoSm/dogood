@@ -1,5 +1,6 @@
 /**
  * node scripts/telegram-set-webhook.mjs [baseUrl]
+ * node scripts/telegram-set-webhook.mjs --client [baseUrl]   -- fair-event client bot
  * Default baseUrl: OPS_PUBLIC_BASE_URL or https://dogood-brand.ru
  */
 import { readFileSync } from "node:fs";
@@ -14,16 +15,21 @@ for (const line of readFileSync(envPath, "utf8").split(/\r?\n/)) {
   if (eq > 0) env[t.slice(0, eq).trim()] = t.slice(eq + 1).trim();
 }
 
-const token = env.TELEGRAM_BOT_TOKEN?.trim();
-const secret = env.TELEGRAM_WEBHOOK_SECRET?.trim();
-const base = (process.argv[2] || env.OPS_PUBLIC_BASE_URL || "https://dogood-brand.ru").replace(/\/$/, "");
+const isClient = process.argv[2] === "--client";
+const baseArg = isClient ? process.argv[3] : process.argv[2];
+
+const token = (isClient ? env.TELEGRAM_CLIENT_BOT_TOKEN : env.TELEGRAM_BOT_TOKEN)?.trim();
+const secret = (isClient ? env.TELEGRAM_CLIENT_WEBHOOK_SECRET : env.TELEGRAM_WEBHOOK_SECRET)?.trim();
+const base = (baseArg || env.OPS_PUBLIC_BASE_URL || "https://dogood-brand.ru").replace(/\/$/, "");
 
 if (!token) {
-  console.error("TELEGRAM_BOT_TOKEN missing in .env.local");
+  console.error(
+    isClient ? "TELEGRAM_CLIENT_BOT_TOKEN missing in .env.local" : "TELEGRAM_BOT_TOKEN missing in .env.local",
+  );
   process.exit(1);
 }
 
-const webhookUrl = `${base}/api/telegram/webhook`;
+const webhookUrl = `${base}${isClient ? "/api/telegram/client-webhook" : "/api/telegram/webhook"}`;
 const params = new URLSearchParams({ url: webhookUrl });
 if (secret) params.set("secret_token", secret);
 

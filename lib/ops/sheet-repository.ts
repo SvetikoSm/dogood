@@ -102,3 +102,26 @@ export async function updateOrderRowCells(
 
   return { ok: true };
 }
+
+/** Append a brand-new row (e.g. a fair-event order) using the sheet's real header order. */
+export async function appendOrderRow(
+  values: Record<string, string>,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const id = getSpreadsheetId();
+  const clients = getGoogleOpsClients();
+  if (!id || !clients) return { ok: false, error: "google not configured" };
+
+  const grid = await fetchOrderSheetGrid();
+  const headers = grid?.headers?.length ? grid.headers : [...ORDER_SHEET_HEADERS];
+  const row = headers.map((h) => values[h] ?? "");
+
+  await clients.sheets.spreadsheets.values.append({
+    spreadsheetId: id,
+    range: `'${getSheetTabName().replace(/'/g, "''")}'!A1`,
+    valueInputOption: "USER_ENTERED",
+    insertDataOption: "INSERT_ROWS",
+    requestBody: { values: [row] },
+  });
+
+  return { ok: true };
+}

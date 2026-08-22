@@ -1,7 +1,5 @@
 import "server-only";
 
-import fs from "node:fs/promises";
-import path from "node:path";
 import { randomUUID } from "node:crypto";
 
 import { eq } from "drizzle-orm";
@@ -9,8 +7,8 @@ import { eq } from "drizzle-orm";
 import { normalizeStyleId, styleDisplayName } from "@/lib/ops/style-masters";
 import type { StyleSlug } from "@/lib/ops/style-masters";
 import { getStudioDb, schema } from "@/lib/studio/db";
-import { getStudioDataDir } from "@/lib/studio/paths";
 import { inferPetNameScript } from "@/lib/studio/script-detect";
+import { downloadTelegramFileToOrder as downloadTelegramFileToOrderShared } from "@/lib/studio/telegram/download-photo";
 
 const BOT_API = "https://api.telegram.org";
 
@@ -81,9 +79,24 @@ function generateKeyboard(): InlineKeyboard {
 export async function sendStudioMenu(chatId: string): Promise<void> {
   await tgSend(
     chatId,
-    "Меню студии. Что создать вручную?",
+    "Меню студии. Что создать вручную?\n\n⚠️ Нажимайте кнопки только в ЭТОМ сообщении — старые кнопки в чате устарели и ломают сценарий.",
     menuKeyboard(),
   );
+}
+
+/** Abort any in-progress manual draft before starting a new flow. */
+async function resetManualSession(chatId: string) {
+  const prev = await getSession(chatId);
+  if (prev?.orderId) await deleteDraftOrder(prev.orderId);
+  await clearSession(chatId);
+}
+
+async function staleButton(chatId: string, detail: string): Promise<{ handled: boolean }> {
+  await tgSend(
+    chatId,
+    `Эта кнопка устарела (${detail}).\nОтправьте /menu и пользуйтесь только новым меню.`,
+  );
+  return { handled: true };
 }
 
 /* ---------------- session helpers ---------------- */
@@ -162,33 +175,7 @@ async function downloadTelegramFileToOrder(
 ): Promise<boolean> {
   const t = token();
   if (!t) return false;
-  try {
-    const info = await fetch(`${BOT_API}/bot${t}/getFile?file_id=${encodeURIComponent(fileId)}`);
-    const infoJson = (await info.json()) as { ok?: boolean; result?: { file_path?: string } };
-    const filePath = infoJson.result?.file_path;
-    if (!filePath) return false;
-    const bin = await fetch(`${BOT_API}/file/bot${t}/${filePath}`);
-    if (!bin.ok) return false;
-    const buf = Buffer.from(await bin.arrayBuffer());
-    const ext = path.extname(filePath) || ".jpg";
-    const rel = path.posix.join("cache", orderId, `${sortOrder}_${fileId}${ext}`);
-    const abs = path.join(getStudioDataDir(), ...rel.split("/"));
-    await fs.mkdir(path.dirname(abs), { recursive: true });
-    await fs.writeFile(abs, buf);
-    await getStudioDb().insert(schema.studioOrderPhotos).values({
-      id: randomUUID(),
-      orderId,
-      sortOrder,
-      driveFileId: "",
-      originalName: path.basename(filePath),
-      mimeType: ext === ".png" ? "image/png" : "image/jpeg",
-      localRelativePath: rel,
-    });
-    return true;
-  } catch (e) {
-    console.error("[manual-flow] download", e);
-    return false;
-  }
+  return downloadTelegramFileToOrderShared(t, orderId, fileId, sortOrder);
 }
 
 async function countPhotos(orderId: string): Promise<number> {
@@ -265,25 +252,38 @@ async function startPackOrder(
 export type ManualResult = { handled: boolean; triggerTick?: boolean };
 
 /** Inline-button presses that belong to the manual flow (data starts with mm:/ms:/mg/mn/mx). */
+/** True if the session has a draft that would be lost by silently resetting it. */
+function hasInProgressDraft(s: Awaited<ReturnType<typeof getSession>>): boolean {
+  return Boolean(s?.orderId && s.awaiting && s.awaiting !== "");
+}
+
 export async function handleManualCallback(chatId: string, data: string): Promise<ManualResult> {
-  if (data === "mm:pack") {
-    const orderId = await createManualOrder("dog_text", "");
-    await setSession(chatId, { flow: "pack", awaiting: "photos", style: "", orderId });
-    await tgSend(
-      chatId,
-      "Пришлите фото собаки (можно несколько).\nКличку можно написать подписью к фото, отдельным сообщением, или нажать «Далее: кличка».",
-      photosDoneKeyboard(),
-    );
-    return { handled: true };
-  }
-  if (data === "mm:dog") {
-    await setSession(chatId, { flow: "dog", awaiting: "style", style: "", orderId: "" });
-    await tgSend(chatId, "Выберите стиль иллюстрации:", styleKeyboard("dog"));
-    return { handled: true };
-  }
-  if (data === "mm:name") {
-    await setSession(chatId, { flow: "name", awaiting: "style", style: "", orderId: "" });
-    await tgSend(chatId, "Выберите стиль надписи:", styleKeyboard("name"));
+  if (data === "mm:pack" || data === "mm:dog" || data === "mm:name") {
+    // Stale menu buttons (an old copy of /menu still sitting in the chat) must
+    // not silently wipe an in-progress draft of ANY flow — dog, name, or pack.
+    const existing = await getSession(chatId);
+    if (hasInProgressDraft(existing) && existing!.flow !== (data === "mm:pack" ? "pack" : data === "mm:dog" ? "dog" : "name")) {
+      return staleButton(
+        chatId,
+        `уже идёт сценарий «${existing!.flow}» — нажмите ✖️ Отмена в текущем шаге или /menu после отмены`,
+      );
+    }
+    await resetManualSession(chatId);
+    if (data === "mm:pack") {
+      const orderId = await createManualOrder("dog_text", "");
+      await setSession(chatId, { flow: "pack", awaiting: "photos", style: "", orderId });
+      await tgSend(
+        chatId,
+        "Пришлите фото собаки (можно несколько).\nКличку можно написать подписью к фото, отдельным сообщением, или нажать «Далее: кличка».",
+        photosDoneKeyboard(),
+      );
+    } else if (data === "mm:dog") {
+      await setSession(chatId, { flow: "dog", awaiting: "style", style: "", orderId: "" });
+      await tgSend(chatId, "Выберите стиль иллюстрации:", styleKeyboard("dog"));
+    } else {
+      await setSession(chatId, { flow: "name", awaiting: "style", style: "", orderId: "" });
+      await tgSend(chatId, "Выберите стиль надписи:", styleKeyboard("name"));
+    }
     return { handled: true };
   }
   if (data === "mx") {
@@ -296,8 +296,11 @@ export async function handleManualCallback(chatId: string, data: string): Promis
   }
   if (data === "mn") {
     const s = await getSession(chatId);
-    if (!s || s.flow !== "pack" || s.awaiting !== "photos" || !s.orderId) {
-      return { handled: false };
+    if (!s || s.flow !== "pack" || !s.orderId) {
+      return staleButton(chatId, "ожидался комплект");
+    }
+    if (s.awaiting !== "photos" && s.awaiting !== "name") {
+      return staleButton(chatId, `сейчас шаг «${s.awaiting || "?"}»`);
     }
     const n = await countPhotos(s.orderId);
     if (n === 0) {
@@ -312,15 +315,30 @@ export async function handleManualCallback(chatId: string, data: string): Promis
   if (ms) {
     const flow = ms[1] as ManualFlow;
     const slug = ms[2] as StyleSlug;
+    const s = await getSession(chatId);
+
+    // Stale style buttons from older messages must not hijack another flow.
+    if (!s || s.flow !== flow) {
+      return staleButton(
+        chatId,
+        s?.flow ? `активен сценарий «${s.flow}», а кнопка от «${flow}»` : "нет активной сессии",
+      );
+    }
+
     if (flow === "pack") {
-      const s = await getSession(chatId);
-      if (!s || s.flow !== "pack" || !s.orderId) {
+      if (!s.orderId) {
         await tgSend(chatId, "Сессия сброшена. Откройте /menu и начните заново.");
         return { handled: true };
+      }
+      if (s.awaiting !== "style") {
+        return staleButton(chatId, `сначала фото и кличка (сейчас «${s.awaiting}»)`);
       }
       return startPackOrder(chatId, s.orderId, slug);
     }
     if (flow === "dog") {
+      if (s.awaiting !== "style") {
+        return staleButton(chatId, `ожидался выбор стиля, сейчас «${s.awaiting}»`);
+      }
       const orderId = await createManualOrder("dog_only", slug);
       await setSession(chatId, { flow, style: slug, awaiting: "photos", orderId });
       await tgSend(
@@ -329,6 +347,9 @@ export async function handleManualCallback(chatId: string, data: string): Promis
         generateKeyboard(),
       );
     } else {
+      if (s.awaiting !== "style") {
+        return staleButton(chatId, `ожидался выбор стиля, сейчас «${s.awaiting}»`);
+      }
       const orderId = await createManualOrder("name_only", slug);
       await setSession(chatId, { flow, style: slug, awaiting: "name", orderId });
       await tgSend(
@@ -341,7 +362,7 @@ export async function handleManualCallback(chatId: string, data: string): Promis
   if (data === "mg") {
     const s = await getSession(chatId);
     if (!s || s.flow !== "dog" || s.awaiting !== "photos" || !s.orderId) {
-      return { handled: false };
+      return staleButton(chatId, "кнопка «Сгенерировать» только для сценария иллюстрации");
     }
     const n = await countPhotos(s.orderId);
     if (n === 0) {

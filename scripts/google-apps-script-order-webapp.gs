@@ -121,6 +121,38 @@ function buildRowArray_(hmap, width, fields) {
   return arr;
 }
 
+/**
+ * Последняя строка, где реально есть ЗАКАЗ (непустая колонка Order ID).
+ * В отличие от sheet.getLastRow(), НЕ учитывает колонки трекинга справа,
+ * растянутые далеко вниз, — иначе новые заказы уходят в самый низ (строка 500+).
+ * Возвращает 1, если заказов ещё нет: тогда первую строку данных пишем во 2-ю.
+ */
+function lastOrderRow_(sheet, colOrderId) {
+  var col = colOrderId && colOrderId > 0 ? colOrderId : 2;
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) return 1;
+  var vals = sheet.getRange(2, col, lastRow - 1, 1).getValues();
+  for (var i = vals.length - 1; i >= 0; i--) {
+    var v = vals[i][0];
+    if (String(v == null ? "" : v).trim() !== "") return i + 2;
+  }
+  return 1;
+}
+
+/**
+ * Самая правая колонка, занятая полями ЗАКАЗА (по заголовкам). Всё, что правее,
+ * — колонки владельца (трекинг прогресса): при записи новой строки их НЕ трогаем.
+ */
+function maxOrderColumn_(hmap, width) {
+  var maxCol = 0;
+  for (var key in FIELD_SYNONYMS) {
+    var fallback = key === "promo" ? PROMO_FALLBACK_COL : -1;
+    var col = colFor_(hmap, FIELD_SYNONYMS[key], fallback);
+    if (col > maxCol && col <= width) maxCol = col;
+  }
+  return maxCol > 0 ? maxCol : ORDER_SHEET_HEADERS.length;
+}
+
 function doPost(e) {
   var props = PropertiesService.getScriptProperties();
   var secretExpected = props.getProperty("WEBHOOK_SECRET");
@@ -198,6 +230,14 @@ function doPost(e) {
     var legal = order.legal || {};
     var customer = order.customer || {};
     var items = order.items && order.items.length ? order.items : [null];
+
+    // Новые строки пишем сразу после последнего ЗАКАЗА (по колонке Order ID), а не
+    // после общего getLastRow(): колонки трекинга справа, растянутые вниз, иначе
+    // толкают заказы в самый низ таблицы (напр. на строку 500+).
+    var orderWidth = maxOrderColumn_(hmap, width);
+    var firstDataRow = lastOrderRow_(sheet, colOrderId) + 1;
+    var rowsToWrite = [];
+
     for (var itemRow = 0; itemRow < items.length; itemRow++) {
       var it = items[itemRow];
       var isFirst = itemRow === 0;
@@ -229,10 +269,13 @@ function doPost(e) {
         consentOferta: isFirst ? (legal.consentTerms ? "yes" : "no") : "",
         links: "",
       };
-      sheet.appendRow(buildRowArray_(hmap, width, fields));
+      rowsToWrite.push(buildRowArray_(hmap, orderWidth, fields));
     }
 
-    var firstDataRow = sheet.getLastRow() - items.length + 1;
+    // Пишем ТОЛЬКО колонки заказа (1..orderWidth). Колонки трекинга справа
+    // остаются нетронутыми — новая строка встаёт в готовую строку трекинга.
+    sheet.getRange(firstDataRow, 1, rowsToWrite.length, orderWidth).setValues(rowsToWrite);
+
     var colFolder = colFor_(hmap, FIELD_SYNONYMS.folder, -1);
     var colFileCount = colFor_(hmap, FIELD_SYNONYMS.fileCount, -1);
     var colLinks = colFor_(hmap, FIELD_SYNONYMS.links, -1);

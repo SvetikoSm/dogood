@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import {
+  handlePendingReviewComment,
   handleTelegramCallback,
   handleTelegramCommand,
 } from "@/lib/studio/telegram/review-bot";
@@ -67,7 +68,11 @@ async function processUpdate(body: {
       const r = await handleManualCallback(String(chatId), cb.data);
       afterManual(r);
     } else if (cb.data) {
-      reply = await handleTelegramCallback(cb.data);
+      reply = await handleTelegramCallback(cb.data, chatId ? String(chatId) : undefined);
+      // An approve/reject just unblocked work (final composition after both
+      // approvals, or a correction after a reject) — start it now instead of
+      // waiting for the next cron tick.
+      kickTick();
     }
     if (token) {
       await fetch(`${BOT_API}/bot${token}/answerCallbackQuery`, {
@@ -95,6 +100,14 @@ async function processUpdate(body: {
 
   if (/^\/(menu|start)(@\w+)?\b/.test(text)) {
     await sendStudioMenu(String(chatId));
+    return;
+  }
+
+  // A reject-with-comment is pending for this chat: this text is the
+  // correction comment, not a manual-menu input (pet name, style, etc).
+  const pendingReview = await handlePendingReviewComment(String(chatId), text);
+  if (pendingReview.handled) {
+    kickTick(); // the correction is queued — run it right away
     return;
   }
 

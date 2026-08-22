@@ -71,6 +71,28 @@ export const STUDIO_MAX_FINAL_GENERATIONS = 2;
 export const STUDIO_STEP_RETRY_BACKOFF_MINUTES = [5, 15, 60] as const;
 export const STUDIO_MAX_STEP_RETRIES = STUDIO_STEP_RETRY_BACKOFF_MINUTES.length;
 
+/**
+ * Fair-event orders retry in seconds, not minutes: a customer is standing at
+ * the stand waiting, so a 5-minute backoff is the same as losing the sale.
+ */
+export const STUDIO_STEP_RETRY_BACKOFF_SECONDS_FAIR = [15, 45, 120] as const;
+
 /** One cron tick keeps running steps until this time budget is spent. */
-export const STUDIO_TICK_BUDGET_MS = 120_000;
-export const STUDIO_TICK_LOCK_MS = 240_000;
+export const STUDIO_TICK_BUDGET_MS = 180_000;
+export const STUDIO_TICK_LOCK_MS = 300_000;
+
+/** A lane (order+stage) holds its claim this long while one step runs. */
+export const STUDIO_LANE_LOCK_MS = 300_000;
+
+/**
+ * How many lanes (order+stage pairs) may run their AI calls at the same time.
+ * The number of AI calls is unchanged — only their concurrency — so this does
+ * not affect cost, just wall-clock latency and provider rate-limit pressure.
+ * Override with STUDIO_MAX_CONCURRENT_LANES; capped so a typo can't hammer
+ * the image provider.
+ */
+export function getStudioMaxConcurrentLanes(): number {
+  const raw = Number(process.env.STUDIO_MAX_CONCURRENT_LANES?.trim());
+  if (!Number.isFinite(raw) || raw < 1) return 4;
+  return Math.min(Math.floor(raw), 12);
+}

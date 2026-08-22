@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { index, integer, real, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { index, integer, primaryKey, real, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
 /** Printable design templates (3 in prod; seed adds demo slugs). */
 export const studioTemplates = sqliteTable(
@@ -33,6 +33,9 @@ export const studioOrderStatuses = [
   "draft",
   "new",
   "assets_loaded",
+  /** mode="full" orders only: dog+text run independently, tracked via dogStatus/textStatus */
+  "in_progress",
+  /** Legacy sequential values — still written by non-full modes (dog_only/name_only/dog_text) */
   "dog_in_progress",
   "dog_awaiting_approval",
   /** Dog stage approved; run text-stage steps when ready */
@@ -48,6 +51,16 @@ export const studioOrderStatuses = [
 ] as const;
 
 export type StudioOrderStatus = (typeof studioOrderStatuses)[number];
+
+/** Per-stage progress for mode="full" orders, tracked independently of the coarse `status`. */
+export const studioStageStatuses = [
+  "pending",
+  "in_progress",
+  "awaiting_approval",
+  "approved",
+] as const;
+
+export type StudioStageStatus = (typeof studioStageStatuses)[number];
 
 export const studioOrders = sqliteTable(
   "studio_orders",
@@ -66,15 +79,25 @@ export const studioOrders = sqliteTable(
     status: text("status").notNull().default("new"),
     /** full = dog→text→final (sheet); dog_text = dog→text (Telegram pack); dog_only / name_only = single-stage manual */
     mode: text("mode").notNull().default("full"),
+    /** mode="full" only: dog stage progress, independent of textStatus (see studioStageStatuses) */
+    dogStatus: text("dog_status").notNull().default("pending"),
+    /** mode="full" only: text stage progress, independent of dogStatus */
+    textStatus: text("text_status").notNull().default("pending"),
+    /** mode="full" only: has the current dogStatus="awaiting_approval" been sent to Telegram? */
+    dogNotified: integer("dog_notified", { mode: "boolean" }).notNull().default(false),
+    /** mode="full" only: has the current textStatus="awaiting_approval" been sent to Telegram? */
+    textNotified: integer("text_notified", { mode: "boolean" }).notNull().default(false),
     lastError: text("last_error").notNull().default(""),
     /** Paths relative to studio data dir for approved stage outputs */
     approvedDogArtifactPath: text("approved_dog_artifact_path").notNull().default(""),
     approvedTextArtifactPath: text("approved_text_artifact_path").notNull().default(""),
     approvedFinalArtifactPath: text("approved_final_artifact_path").notNull().default(""),
-    /** Last stage we sent to Telegram (dog|text|final) to avoid duplicate pings */
+    /** Last stage we sent to Telegram (dog|text|final) to avoid duplicate pings — non-full modes + final stage only */
     reviewNotifiedFor: text("review_notified_for").notNull().default(""),
-    /** Latest human reject note from Telegram (used for next correction prompt) */
+    /** Latest human reject note from Telegram (used for next correction prompt) — dog stage (all modes) + non-full text stage */
     humanRejectNote: text("human_reject_note").notNull().default(""),
+    /** mode="full" only: text-stage reject note, kept separate from humanRejectNote so concurrent dog+text rejects can't clobber each other */
+    textRejectNote: text("text_reject_note").notNull().default(""),
     /** Consecutive failed automated steps; reset to 0 on success */
     retryCount: integer("retry_count").notNull().default(0),
     /** Orchestrator skips this order until this time (backoff after a failure) */
@@ -220,9 +243,106 @@ export const studioPromptDefinitions = sqliteTable("studio_prompt_definitions", 
     .default(sql`(unixepoch())`),
 });
 
+export const studioFairSteps = [
+  "awaiting_photo",
+  "awaiting_pet_name",
+  "awaiting_email",
+  "generating",
+  "awaiting_payment",
+  "paid_awaiting_size",
+  "awaiting_fio",
+  "awaiting_phone",
+  "awaiting_delivery",
+  "awaiting_pvz",
+  "done",
+] as const;
+
+export type StudioFairStep = (typeof studioFairSteps)[number];
+
+/** One row per fair-event customer, driving the client-facing Telegram bot FSM. */
+export const studioFairOrders = sqliteTable(
+  "studio_fair_orders",
+  {
+    id: text("id").primaryKey(),
+    orderId: text("order_id")
+      .notNull()
+      .references(() => studioOrders.id, { onDelete: "cascade" }),
+    /** Client Telegram chat id (the client-facing bot, not the owner's) */
+    chatId: text("chat_id").notNull(),
+    step: text("step").notNull().default("awaiting_photo"),
+    petName: text("pet_name").notNull().default(""),
+    email: text("email").notNull().default(""),
+    /** Drive view link for the approved final mockup, sent to the client */
+    makeupUrl: text("makeup_url").notNull().default(""),
+    paymentId: text("payment_id").notNull().default(""),
+    /** "" | pending | succeeded | canceled */
+    paymentStatus: text("payment_status").notNull().default(""),
+    paymentUrl: text("payment_url").notNull().default(""),
+    amountRub: text("amount_rub").notNull().default(""),
+    size: text("size").notNull().default(""),
+    fio: text("fio").notNull().default(""),
+    phone: text("phone").notNull().default(""),
+    /** yandex | cdek */
+    deliveryService: text("delivery_service").notNull().default(""),
+    pvz: text("pvz").notNull().default(""),
+    sheetRowWritten: integer("sheet_row_written", { mode: "boolean" }).notNull().default(false),
+    createdAt: integer("created_at", { mode: "timestamp" })
+      .notNull()
+      .default(sql`(unixepoch())`),
+    updatedAt: integer("updated_at", { mode: "timestamp" })
+      .notNull()
+      .default(sql`(unixepoch())`),
+  },
+  (t) => [
+    index("studio_fair_orders_chat_idx").on(t.chatId),
+    index("studio_fair_orders_order_idx").on(t.orderId),
+    index("studio_fair_orders_payment_idx").on(t.paymentId),
+  ],
+);
+
+/** Owner-bot reject flow: after tapping "На доработку" we wait for the next text message as the comment. */
+export const studioReviewPending = sqliteTable("studio_review_pending", {
+  chatId: text("chat_id").primaryKey(),
+  /** dog | text | final */
+  stage: text("stage").notNull(),
+  sheetOrderId: text("sheet_order_id").notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" })
+    .notNull()
+    .default(sql`(unixepoch())`),
+});
+
+export const studioLaneStages = ["ingest", "dog", "text", "final", "legacy"] as const;
+
+export type StudioLaneStage = (typeof studioLaneStages)[number];
+
+/**
+ * Retry bookkeeping per LANE (order + stage), not per order: with dog/text
+ * running concurrently, a failing text generation must not freeze the dog
+ * stage or park the whole order.
+ */
+export const studioLaneState = sqliteTable(
+  "studio_lane_state",
+  {
+    orderId: text("order_id").notNull(),
+    /** ingest | dog | text | final | legacy */
+    stage: text("stage").notNull(),
+    retryCount: integer("retry_count").notNull().default(0),
+    /** Lane is skipped until this time; far future = parked after exhausting retries. */
+    nextRetryAt: integer("next_retry_at", { mode: "timestamp" }),
+    lastError: text("last_error").notNull().default(""),
+    updatedAt: integer("updated_at", { mode: "timestamp" })
+      .notNull()
+      .default(sql`(unixepoch())`),
+  },
+  (t) => [primaryKey({ columns: [t.orderId, t.stage] })],
+);
+
 export type StudioTgSession = typeof studioTgSessions.$inferSelect;
 export type StudioTemplate = typeof studioTemplates.$inferSelect;
 export type StudioOrder = typeof studioOrders.$inferSelect;
 export type StudioOrderPhoto = typeof studioOrderPhotos.$inferSelect;
 export type StudioStepRun = typeof studioStepRuns.$inferSelect;
+export type StudioFairOrder = typeof studioFairOrders.$inferSelect;
+export type StudioReviewPending = typeof studioReviewPending.$inferSelect;
+export type StudioLaneState = typeof studioLaneState.$inferSelect;
 export type StudioPromptDefinition = typeof studioPromptDefinitions.$inferSelect;

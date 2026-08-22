@@ -13,6 +13,7 @@ import { getStudioLlmModel, getStudioImageModel } from "@/lib/studio/env";
 import { fetchDrivePhotosForOrder } from "@/lib/studio/google/fetch-order-photos";
 import { absoluteFromStudioRelative } from "@/lib/studio/paths";
 import { loadPromptBody } from "@/lib/studio/prompts/load-prompt";
+import { isParallelStageMode } from "@/lib/studio/pipeline/modes";
 import { latestSuccessfulStepRun } from "@/lib/studio/pipeline/step-queries";
 import { resolveTemplateForSlug } from "@/lib/studio/templates/resolve";
 import { STUDIO_PROMPT_KEYS, STUDIO_STEP_KEYS, type StudioStepKey } from "@/lib/studio/step-keys";
@@ -217,7 +218,11 @@ export async function runStudioStep(
     });
     await db
       .update(schema.studioOrders)
-      .set({ status: "dog_in_progress", lastError: "", updatedAt: new Date() })
+      .set(
+        isParallelStageMode(order.mode)
+          ? { dogStatus: "in_progress", lastError: "", updatedAt: new Date() }
+          : { status: "dog_in_progress", lastError: "", updatedAt: new Date() },
+      )
       .where(eq(schema.studioOrders.id, orderId));
 
     const system = await loadPromptBody(STUDIO_PROMPT_KEYS.dog_initial_prompt_llm);
@@ -435,14 +440,18 @@ export async function runStudioStep(
     });
     await db
       .update(schema.studioOrders)
-      .set({ status: "dog_awaiting_approval", updatedAt: new Date(), lastError: "" })
+      .set(
+        isParallelStageMode(order.mode)
+          ? { dogStatus: "awaiting_approval", updatedAt: new Date(), lastError: "" }
+          : { status: "dog_awaiting_approval", updatedAt: new Date(), lastError: "" },
+      )
       .where(eq(schema.studioOrders.id, orderId));
     return { ok: true, stepRunId: runId };
   }
 
   /* ---------- Stage B ---------- */
   if (stepKey === STUDIO_STEP_KEYS.TEXT_LLM_STYLE_PROMPT) {
-    if (order.mode !== "name_only" && !order.approvedDogArtifactPath?.trim()) {
+    if (order.mode !== "name_only" && !isParallelStageMode(order.mode) && !order.approvedDogArtifactPath?.trim()) {
       return {
         ok: false,
         error: "Approve the dog illustration first (human gate saves approvedDogArtifactPath)",
@@ -451,7 +460,11 @@ export async function runStudioStep(
     const runId = await insertRunStart(orderId, "text", stepKey, attempt, {});
     await db
       .update(schema.studioOrders)
-      .set({ status: "text_in_progress", lastError: "", updatedAt: new Date() })
+      .set(
+        isParallelStageMode(order.mode)
+          ? { textStatus: "in_progress", lastError: "", updatedAt: new Date() }
+          : { status: "text_in_progress", lastError: "", updatedAt: new Date() },
+      )
       .where(eq(schema.studioOrders.id, orderId));
     const urls = await readImageUrls([tpl.textStyleRefAbs]);
     const system = await loadPromptBody(STUDIO_PROMPT_KEYS.text_style_prompt_llm);
@@ -477,7 +490,7 @@ export async function runStudioStep(
   }
 
   if (stepKey === STUDIO_STEP_KEYS.TEXT_IMG_V1) {
-    if (order.mode !== "name_only" && !order.approvedDogArtifactPath?.trim()) {
+    if (order.mode !== "name_only" && !isParallelStageMode(order.mode) && !order.approvedDogArtifactPath?.trim()) {
       return { ok: false, error: "Approve dog stage first" };
     }
     const env = await envelopeFromLatestStep(orderId, [STUDIO_STEP_KEYS.TEXT_LLM_STYLE_PROMPT]);
@@ -505,7 +518,7 @@ export async function runStudioStep(
   }
 
   if (stepKey === STUDIO_STEP_KEYS.TEXT_LLM_CRITIQUE) {
-    if (order.mode !== "name_only" && !order.approvedDogArtifactPath?.trim()) {
+    if (order.mode !== "name_only" && !isParallelStageMode(order.mode) && !order.approvedDogArtifactPath?.trim()) {
       return { ok: false, error: "Approve dog stage first" };
     }
     const imgRow = await latestSuccessfulStepRun(orderId, [STUDIO_STEP_KEYS.TEXT_IMG_V1]);
@@ -532,7 +545,7 @@ export async function runStudioStep(
   }
 
   if (stepKey === STUDIO_STEP_KEYS.TEXT_IMG_V2_CORRECTION) {
-    if (order.mode !== "name_only" && !order.approvedDogArtifactPath?.trim()) {
+    if (order.mode !== "name_only" && !isParallelStageMode(order.mode) && !order.approvedDogArtifactPath?.trim()) {
       return { ok: false, error: "Approve dog stage first" };
     }
     const imgRow = await latestSuccessfulStepRun(orderId, [
@@ -542,12 +555,18 @@ export async function runStudioStep(
     const refs = [tpl.textStyleRefAbs];
     if (imgRow?.outputArtifactPath) refs.push(absoluteFromStudioRelative(imgRow.outputArtifactPath));
 
+    // mode="full"/"fair" tracks the text reject note separately from the dog
+    // one (humanRejectNote) since both stages can be awaiting approval at once.
     let prompt = "";
-    const note = order.humanRejectNote?.trim();
+    const note = (isParallelStageMode(order.mode) ? order.textRejectNote : order.humanRejectNote)?.trim();
     if (note) {
       await db
         .update(schema.studioOrders)
-        .set({ humanRejectNote: "", updatedAt: new Date() })
+        .set(
+          isParallelStageMode(order.mode)
+            ? { textRejectNote: "", updatedAt: new Date() }
+            : { humanRejectNote: "", updatedAt: new Date() },
+        )
         .where(eq(schema.studioOrders.id, orderId));
       const system = await loadPromptBody(STUDIO_PROMPT_KEYS.text_critique_llm);
       const user = [
@@ -594,7 +613,11 @@ export async function runStudioStep(
     });
     await db
       .update(schema.studioOrders)
-      .set({ status: "text_awaiting_approval", updatedAt: new Date(), lastError: "" })
+      .set(
+        isParallelStageMode(order.mode)
+          ? { textStatus: "awaiting_approval", updatedAt: new Date(), lastError: "" }
+          : { status: "text_awaiting_approval", updatedAt: new Date(), lastError: "" },
+      )
       .where(eq(schema.studioOrders.id, orderId));
     return { ok: true, stepRunId: runId };
   }
@@ -685,16 +708,55 @@ export async function runStudioStep(
   }
 
   if (stepKey === STUDIO_STEP_KEYS.FINAL_IMG_V2_CORRECTION) {
-    const env = await envelopeFromLatestStep(orderId, [STUDIO_STEP_KEYS.FINAL_LLM_CRITIQUE]);
-    const prompt = env?.prompt?.trim();
-    if (!prompt) return { ok: false, error: "Run final critique LLM first" };
-    const imgRow = await latestSuccessfulStepRun(orderId, [STUDIO_STEP_KEYS.FINAL_IMG_V1]);
+    const imgRow = await latestSuccessfulStepRun(orderId, [
+      STUDIO_STEP_KEYS.FINAL_IMG_V1,
+      STUDIO_STEP_KEYS.FINAL_IMG_V2_CORRECTION,
+    ]);
     const refs = [
       tpl.designAbs,
       absoluteFromStudioRelative(order.approvedDogArtifactPath),
       absoluteFromStudioRelative(order.approvedTextArtifactPath),
     ];
     if (imgRow?.outputArtifactPath) refs.push(absoluteFromStudioRelative(imgRow.outputArtifactPath));
+
+    let prompt = "";
+    const note = order.humanRejectNote?.trim();
+    if (note) {
+      await db
+        .update(schema.studioOrders)
+        .set({ humanRejectNote: "", updatedAt: new Date() })
+        .where(eq(schema.studioOrders.id, orderId));
+      // Turn the reviewer's note into a proper correction prompt (the raw note
+      // is a poor image prompt on its own); fall back to the note if the LLM fails.
+      const system = await loadPromptBody(STUDIO_PROMPT_KEYS.final_critique_llm);
+      const user = [
+        `A human reviewer rejected the current final composite with this comment:`,
+        `"${note}"`,
+        ``,
+        `Template slug: ${order.designSlug}`,
+        `Pet name exact on print: ${JSON.stringify(order.petNameRaw)}`,
+        `Write a correction prompt for the image model that fixes exactly what the reviewer flagged while preserving the master composition, layout and everything else. Return status "needs_correction" with the prompt.`,
+      ].join("\n");
+      const llm = await runLlm({
+        system,
+        user,
+        imageDataUrls: await readImageUrls(refs),
+      });
+      if (llm.ok) {
+        const env = llm.parsed ?? parseLlmReviewEnvelope(llm.raw);
+        prompt = env?.prompt?.trim() ?? "";
+      }
+      if (!prompt) prompt = note;
+    } else {
+      const env = await envelopeFromLatestStep(orderId, [STUDIO_STEP_KEYS.FINAL_LLM_CRITIQUE]);
+      prompt = env?.prompt?.trim() ?? "";
+      if (!prompt && env?.key_issues?.length) {
+        prompt = `Fix the following issues in the current composite while keeping everything else unchanged: ${env.key_issues.join("; ")}`;
+      }
+    }
+    if (!prompt) {
+      return { ok: false, error: "Run final critique LLM first or provide human reject note" };
+    }
     const runId = await insertRunStart(orderId, "final", stepKey, attempt, {});
     const gen = await runImg({ prompt, referenceImagePaths: refs });
     if (!gen.ok) {
