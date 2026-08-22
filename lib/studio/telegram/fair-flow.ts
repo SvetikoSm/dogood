@@ -508,7 +508,7 @@ export async function sendFairReceipt(fairId: string): Promise<boolean> {
 
   const r = await registerFairIncome({
     amountRub: amount,
-    description: `Футболка DoGood — ${fair.petName || "питомец"}`,
+    description: "Кастомизированная футболка",
   });
 
   if (!r.ok) {

@@ -14,8 +14,18 @@ import { getEnvRaw } from "@/lib/studio/runtime-env";
 
 const API_BASE = "https://lknpd.nalog.ru/api/v1";
 
+/**
+ * Two auth options, either works:
+ *   1. MOY_NALOG_REFRESH_TOKEN (+ MOY_NALOG_DEVICE_ID) — долгоживущий токен,
+ *      полученный одноразовым входом по СМС (scripts/moy-nalog-sms-login.mjs).
+ *      Пароль нигде не хранится.
+ *   2. MOY_NALOG_PASSWORD — пароль от lknpd.nalog.ru.
+ */
 export function isMoyNalogEnabled(): boolean {
-  return Boolean(getEnvRaw("MOY_NALOG_INN")?.trim() && getEnvRaw("MOY_NALOG_PASSWORD")?.trim());
+  return Boolean(
+    getEnvRaw("MOY_NALOG_INN")?.trim() &&
+      (getEnvRaw("MOY_NALOG_REFRESH_TOKEN")?.trim() || getEnvRaw("MOY_NALOG_PASSWORD")?.trim()),
+  );
 }
 
 /* ---------------- auth: token cached in-process, re-auth on 401 ---------------- */
@@ -26,8 +36,11 @@ let cachedToken = "";
 let cachedRefreshToken = "";
 let tokenExpiresAt = 0;
 
+// The refresh token is bound to the device id it was issued for, so when the
+// token comes from the SMS-login script we must reuse that same device id.
 const deviceInfo = {
-  sourceDeviceId: randomUUID().replace(/-/g, "").slice(0, 21),
+  sourceDeviceId:
+    getEnvRaw("MOY_NALOG_DEVICE_ID")?.trim() || randomUUID().replace(/-/g, "").slice(0, 21),
   sourceType: "WEB",
   appVersion: "1.0.0",
   metaDetails: {
@@ -73,6 +86,7 @@ async function authWithPassword(): Promise<{ ok: true } | { ok: false; error: st
 }
 
 async function refreshAuth(): Promise<boolean> {
+  if (!cachedRefreshToken) cachedRefreshToken = getEnvRaw("MOY_NALOG_REFRESH_TOKEN")?.trim() ?? "";
   if (!cachedRefreshToken) return false;
   try {
     const res = await fetch(`${API_BASE}/auth/token`, {
@@ -90,6 +104,13 @@ async function refreshAuth(): Promise<boolean> {
 async function getToken(): Promise<{ ok: true; token: string } | { ok: false; error: string }> {
   if (cachedToken && Date.now() < tokenExpiresAt) return { ok: true, token: cachedToken };
   if (await refreshAuth()) return { ok: true, token: cachedToken };
+  if (!getEnvRaw("MOY_NALOG_PASSWORD")?.trim()) {
+    return {
+      ok: false,
+      error:
+        "refresh-токен не сработал, а пароль не задан — выполните вход заново: node scripts/moy-nalog-sms-login.mjs",
+    };
+  }
   const r = await authWithPassword();
   if (!r.ok) return r;
   return { ok: true, token: cachedToken };
