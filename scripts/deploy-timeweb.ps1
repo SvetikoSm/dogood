@@ -28,6 +28,8 @@ if (Test-Path $SaJson) {
 $remote = @'
 set -e
 cd /opt/dogood
+# Discard local edits on the VPS that block git pull (cron script etc. come from the repo).
+git stash push -u -m "deploy-auto-stash $(date -Iseconds)" || true
 git pull origin main
 node /tmp/patch-env-production.mjs .env.production __SA_ARG__ /tmp/dogood-secrets.env
 rm -f /tmp/dogood-sa.json /tmp/dogood-secrets.env
@@ -52,6 +54,9 @@ fi
 bash scripts/install-nginx-dogood.sh || true
 docker ps --filter name=dogood
 curl -sI http://127.0.0.1:3000 | head -n 3
+# Fail loudly if the new fair routes are missing (deploy incomplete).
+curl -fsS -o /dev/null -w "yookassa-webhook:%{http_code}\n" -X POST http://127.0.0.1:3000/api/payments/yookassa/webhook -H "Content-Type: application/json" -d '{}' || echo 'yookassa-webhook:MISSING'
+curl -fsS -o /dev/null -w "client-webhook:%{http_code}\n" -X POST http://127.0.0.1:3000/api/telegram/client-webhook -H "Content-Type: application/json" -d '{}' || echo 'client-webhook:MISSING'
 '@
 $remote = $remote.Replace('__SA_ARG__', $SaArg)
 
