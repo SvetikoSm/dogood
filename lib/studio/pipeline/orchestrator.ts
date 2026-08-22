@@ -22,7 +22,7 @@ import { latestSuccessfulStepRun } from "@/lib/studio/pipeline/step-queries";
 import { runStudioStep } from "@/lib/studio/pipeline/run-studio-step";
 import { pollPendingFairPayments } from "@/lib/payments/yookassa";
 import { STUDIO_STEP_KEYS, type StudioStepKey } from "@/lib/studio/step-keys";
-import { retryUnwrittenFairSheetRows } from "@/lib/studio/telegram/fair-flow";
+import { retryFailedFairReceipts, retryUnwrittenFairSheetRows } from "@/lib/studio/telegram/fair-flow";
 import { parseLlmReviewEnvelope } from "@/lib/studio/types/llm-json";
 import {
   sendStudioAlert,
@@ -717,6 +717,13 @@ export async function runStudioPipelineTick(): Promise<{ ok: true; detail: strin
       if (written > 0) actions.push(`fair_sheet_rows_written=${written}`);
     } catch (e) {
       actions.push(`fair_sheet_retry_fail=${e instanceof Error ? e.message : String(e)}`);
+    }
+
+    try {
+      const receipts = await retryFailedFairReceipts();
+      if (receipts > 0) actions.push(`fair_receipts_sent=${receipts}`);
+    } catch (e) {
+      actions.push(`fair_receipt_retry_fail=${e instanceof Error ? e.message : String(e)}`);
     }
 
     const maxLanes = getStudioMaxConcurrentLanes();

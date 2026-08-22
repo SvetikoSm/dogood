@@ -286,6 +286,10 @@ export const studioFairOrders = sqliteTable(
     deliveryService: text("delivery_service").notNull().default(""),
     pvz: text("pvz").notNull().default(""),
     sheetRowWritten: integer("sheet_row_written", { mode: "boolean" }).notNull().default(false),
+    /** Чек «Мой налог»: "" (не пробовали) | sent | failed */
+    receiptStatus: text("receipt_status").notNull().default(""),
+    receiptUrl: text("receipt_url").notNull().default(""),
+    receiptAttempts: integer("receipt_attempts").notNull().default(0),
     createdAt: integer("created_at", { mode: "timestamp" })
       .notNull()
       .default(sql`(unixepoch())`),

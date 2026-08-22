@@ -2,9 +2,10 @@ import "server-only";
 
 import { randomUUID } from "node:crypto";
 
-import { and, desc, eq, ne } from "drizzle-orm";
+import { and, desc, eq, lt, ne } from "drizzle-orm";
 
 import { appendOrderRow } from "@/lib/ops/sheet-repository";
+import { isMoyNalogEnabled, registerFairIncome } from "@/lib/payments/moy-nalog";
 import { createPayment, isYookassaEnabled } from "@/lib/payments/yookassa";
 import { getStudioDb, schema } from "@/lib/studio/db";
 import type { StudioFairStep } from "@/lib/studio/db/schema";
@@ -463,6 +464,102 @@ export async function onFairPaymentSucceeded(fairOrderId: string): Promise<void>
     sizeKeyboard(),
   );
   await sendStudioAlert(`💰 Оплата получена: ${fair.email || fair.chatId}, кличка «${fair.petName}».`);
+
+  // Fiscal receipt is best-effort here: a failure is stored on the row and
+  // retried from the cron tick, it must never break the payment flow.
+  try {
+    await sendFairReceipt(fair.id);
+  } catch (e) {
+    console.error("[fair-flow] sendFairReceipt", e);
+  }
+}
+
+/* ---------------- fiscal receipt («Мой налог») ---------------- */
+
+const MAX_RECEIPT_ATTEMPTS = 5;
+
+/**
+ * Register the paid sale in «Мой налог» and send the receipt link to the
+ * client. Same claim-first pattern as finalizeFairOrder: a single conditional
+ * UPDATE claims the receipt before any network call, so the YooKassa webhook,
+ * the payment poller and the tick retry can all call this concurrently and
+ * only one of them ever registers the income.
+ */
+export async function sendFairReceipt(fairId: string): Promise<boolean> {
+  if (!isStudioMockMode() && !isMoyNalogEnabled()) return false;
+  const db = getStudioDb();
+
+  const claimed = await db
+    .update(schema.studioFairOrders)
+    .set({ receiptStatus: "sent", updatedAt: new Date() })
+    .where(
+      and(
+        eq(schema.studioFairOrders.id, fairId),
+        eq(schema.studioFairOrders.paymentStatus, "succeeded"),
+        ne(schema.studioFairOrders.receiptStatus, "sent"),
+      ),
+    )
+    .returning();
+  const fair = claimed[0];
+  if (!fair) return false; // not paid yet, or receipt already sent/claimed
+
+  const amount = Number(fair.amountRub) || 0;
+  if (amount <= 0) return false; // free order — nothing to fiscalize
+
+  const r = await registerFairIncome({
+    amountRub: amount,
+    description: `Футболка DoGood — ${fair.petName || "питомец"}`,
+  });
+
+  if (!r.ok) {
+    console.error("[fair-flow] moy-nalog receipt failed:", r.error);
+    const attempts = fair.receiptAttempts + 1;
+    // Roll back so the tick retry picks it up (bounded by MAX_RECEIPT_ATTEMPTS).
+    await db
+      .update(schema.studioFairOrders)
+      .set({ receiptStatus: "failed", receiptAttempts: attempts, updatedAt: new Date() })
+      .where(eq(schema.studioFairOrders.id, fair.id));
+    // Alert on the first failure and once more when retries run out — not on
+    // every retry, so a broken password doesn't spam the owner every minute.
+    if (attempts === 1 || attempts === MAX_RECEIPT_ATTEMPTS) {
+      await sendStudioAlert(
+        `⚠️ Чек «Мой налог» не создан (попытка ${attempts}/${MAX_RECEIPT_ATTEMPTS}) для «${fair.petName}»: ${r.error}` +
+          (attempts >= MAX_RECEIPT_ATTEMPTS ? "\nБольше не повторяю — оформите чек вручную в приложении." : ""),
+      );
+    }
+    return false;
+  }
+
+  await db
+    .update(schema.studioFairOrders)
+    .set({ receiptUrl: r.receiptUrl, updatedAt: new Date() })
+    .where(eq(schema.studioFairOrders.id, fair.id));
+  await clientSend(fair.chatId, `🧾 Ваш чек об оплате: ${r.receiptUrl}`);
+  return true;
+}
+
+/**
+ * Tick fallback: retry receipts that failed (Мой налог was down, wrong
+ * password, etc.), bounded to MAX_RECEIPT_ATTEMPTS per order.
+ */
+export async function retryFailedFairReceipts(): Promise<number> {
+  if (!isStudioMockMode() && !isMoyNalogEnabled()) return 0;
+  const db = getStudioDb();
+  const rows = await db
+    .select({ id: schema.studioFairOrders.id })
+    .from(schema.studioFairOrders)
+    .where(
+      and(
+        eq(schema.studioFairOrders.paymentStatus, "succeeded"),
+        eq(schema.studioFairOrders.receiptStatus, "failed"),
+        lt(schema.studioFairOrders.receiptAttempts, MAX_RECEIPT_ATTEMPTS),
+      ),
+    );
+  let sent = 0;
+  for (const row of rows) {
+    if (await sendFairReceipt(row.id)) sent += 1;
+  }
+  return sent;
 }
 
 /* ---------------- final sheet write ---------------- */

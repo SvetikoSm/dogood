@@ -280,6 +280,13 @@ async function main() {
   await tickUntil(async () => (await fairRow()).step === "paid_awaiting_size", "payment poll confirmation");
   console.log("payment confirmation OK");
 
+  // 6b. Fiscal receipt («Мой налог» mock) must have been registered exactly
+  // once as part of the payment-success handling.
+  fair = await fairRow();
+  if (fair.receiptStatus !== "sent") throw new Error(`expected receiptStatus=sent, got "${fair.receiptStatus}"`);
+  if (!fair.receiptUrl.includes("/receipt/")) throw new Error(`unexpected receiptUrl: "${fair.receiptUrl}"`);
+  console.log("moy-nalog receipt OK:", fair.receiptUrl);
+
   // 7. Post-payment questionnaire
   const sizeResult = await handleFairCallback(CHAT_ID, "fs:M");
   if (!sizeResult.handled) throw new Error("size callback not handled");

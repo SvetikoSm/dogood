@@ -160,6 +160,9 @@ CREATE TABLE IF NOT EXISTS studio_fair_orders (
   delivery_service text NOT NULL DEFAULT '',
   pvz text NOT NULL DEFAULT '',
   sheet_row_written integer NOT NULL DEFAULT 0,
+  receipt_status text NOT NULL DEFAULT '',
+  receipt_url text NOT NULL DEFAULT '',
+  receipt_attempts integer NOT NULL DEFAULT 0,
   created_at integer NOT NULL DEFAULT (unixepoch()),
   updated_at integer NOT NULL DEFAULT (unixepoch())
 );
@@ -241,5 +244,8 @@ async function doEnsure(): Promise<void> {
   await addColumnIfMissing(c, "studio_orders", "dog_notified", "integer NOT NULL DEFAULT 0");
   await addColumnIfMissing(c, "studio_orders", "text_notified", "integer NOT NULL DEFAULT 0");
   await addColumnIfMissing(c, "studio_orders", "text_reject_note", "text NOT NULL DEFAULT ''");
+  await addColumnIfMissing(c, "studio_fair_orders", "receipt_status", "text NOT NULL DEFAULT ''");
+  await addColumnIfMissing(c, "studio_fair_orders", "receipt_url", "text NOT NULL DEFAULT ''");
+  await addColumnIfMissing(c, "studio_fair_orders", "receipt_attempts", "integer NOT NULL DEFAULT 0");
   await backfillFullOrderStageStatus(c);
 }
