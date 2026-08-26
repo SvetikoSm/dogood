@@ -9,7 +9,13 @@ import {
   type AiCallContext,
   type AiUsage,
 } from "@/lib/studio/ai/usage";
-import { getStudioImageHttpUrl, getStudioImageModel, isStudioMockMode } from "@/lib/studio/env";
+import {
+  getOpenRouterBaseUrl,
+  getOpenRouterProxySecret,
+  getStudioImageHttpUrl,
+  getStudioImageModel,
+  isStudioMockMode,
+} from "@/lib/studio/env";
 import { absoluteFromStudioRelative } from "@/lib/studio/paths";
 
 export type ImageGenInput = {
@@ -167,13 +173,15 @@ export async function generateStudioImage(input: ImageGenInput): Promise<ImageGe
   }
 
   try {
-    const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    const proxySecret = getOpenRouterProxySecret();
+    const res = await fetch(`${getOpenRouterBaseUrl()}/chat/completions`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
         "HTTP-Referer": process.env.OPS_PUBLIC_BASE_URL?.trim() || "https://dogood.local",
         "X-Title": "DoGood Studio Image",
+        ...(proxySecret ? { "X-Proxy-Secret": proxySecret } : {}),
       },
       body: JSON.stringify({
         model,

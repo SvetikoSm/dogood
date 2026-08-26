@@ -19,3 +19,13 @@ export function getStudioImageHttpUrl(): string | undefined {
   const u = getEnvRaw("STUDIO_IMAGE_HTTP_URL")?.trim();
   return u || undefined;
 }
+
+/** База OpenRouter API. Прокси нужен там, где провайдер блокирует IP сервера. */
+export function getOpenRouterBaseUrl(): string {
+  return (getEnvRaw("OPENROUTER_BASE_URL")?.trim() || "https://openrouter.ai/api/v1").replace(/\/+$/, "");
+}
+
+/** Общий секрет для собственного прокси (пусто = прокси без авторизации/не используется). */
+export function getOpenRouterProxySecret(): string {
+  return getEnvRaw("OPENROUTER_PROXY_SECRET")?.trim() || "";
+}

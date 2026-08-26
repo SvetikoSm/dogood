@@ -1,7 +1,7 @@
 import "server-only";
 
 import { parseOpenRouterUsage, recordAiCall, type AiCallContext, type AiUsage } from "@/lib/studio/ai/usage";
-import { isStudioMockMode } from "@/lib/studio/env";
+import { getOpenRouterBaseUrl, getOpenRouterProxySecret, isStudioMockMode } from "@/lib/studio/env";
 import { getEnvRaw } from "@/lib/studio/runtime-env";
 import {
   parseLlmReviewEnvelope,
@@ -50,13 +50,15 @@ export async function openRouterChatJson(opts: {
   }
 
   try {
-    const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    const proxySecret = getOpenRouterProxySecret();
+    const res = await fetch(`${getOpenRouterBaseUrl()}/chat/completions`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
         "HTTP-Referer": process.env.OPS_PUBLIC_BASE_URL?.trim() || "https://dogood.local",
         "X-Title": "DoGood Studio LLM",
+        ...(proxySecret ? { "X-Proxy-Secret": proxySecret } : {}),
       },
       body: JSON.stringify({
         model,
