@@ -41,7 +41,6 @@ node /tmp/patch-env-production.mjs .env.production __SA_ARG__ /tmp/dogood-secret
 rm -f /tmp/dogood-sa.json /tmp/dogood-secrets.env
 docker build -t dogood-v2 .
 # Cloudflare WARP local proxy: VPS cannot reach Telegram directly (DPI).
-# Must run before docker/poller so TELEGRAM_HTTPS_PROXY* exist.
 bash scripts/install-warp-telegram.sh || echo 'WARP install/probe failed - Telegram bots may be down'
 TG_PROXY_DOCKER=""
 if [ -f /etc/dogood/telegram-proxy.env ]; then
@@ -49,11 +48,18 @@ if [ -f /etc/dogood/telegram-proxy.env ]; then
 fi
 docker stop dogood 2>/dev/null || true
 docker rm dogood 2>/dev/null || true
-docker run -d --name dogood --restart unless-stopped \
-  -p 127.0.0.1:3000:3000 \
-  --env-file .env.production \
-  ${TG_PROXY_DOCKER:+-e TELEGRAM_HTTPS_PROXY=$TG_PROXY_DOCKER} \
-  -v dogood_data:/app/data dogood-v2
+if [ -n "$TG_PROXY_DOCKER" ]; then
+  docker run -d --name dogood --restart unless-stopped \
+    -p 127.0.0.1:3000:3000 \
+    --env-file .env.production \
+    -e TELEGRAM_HTTPS_PROXY="$TG_PROXY_DOCKER" \
+    -v dogood_data:/app/data dogood-v2
+else
+  docker run -d --name dogood --restart unless-stopped \
+    -p 127.0.0.1:3000:3000 \
+    --env-file .env.production \
+    -v dogood_data:/app/data dogood-v2
+fi
 # Studio DB schema self-migrates on first request; wait for boot, then sync templates from Drive.
 sleep 8
 SECRET=$(grep '^STUDIO_CRON_SECRET=' .env.production | cut -d= -f2-)
