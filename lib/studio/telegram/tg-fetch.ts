@@ -6,13 +6,24 @@ import { mkdtemp, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
+import { telegramHttpsProxy } from "@/lib/studio/telegram/api-base";
+
 /**
- * fetch для api.telegram.org через curl.
+ * fetch для Telegram Bot API через curl.
  *
- * На Timeweb VPS Node TLS к api.telegram.org почти всегда даёт connect
- * ETIMEDOUT (DPI), а curl к тому же pinned IP проходит. Поэтому все ответы
- * бота (sendMessage / sendPhoto / getFile / …) уходят через curl.
+ * На Timeweb VPS прямой TLS к api.telegram.org часто даёт connect ETIMEDOUT
+ * (DPI). Решение: Cloudflare WARP в режиме локального HTTP-прокси
+ * (TELEGRAM_HTTPS_PROXY=http://172.17.0.1:40000 внутри Docker) — curl -x
+ * ходит через WARP, и Telegram стабильно доступен без ПК-релея.
+ *
+ * Альтернатива: TELEGRAM_API_BASE на Cloudflare Worker
+ * (workers/telegram-api-proxy), тогда прокси не обязателен.
  */
+function proxyArgs(): string[] {
+  const proxy = telegramHttpsProxy();
+  return proxy ? ["-x", proxy] : [];
+}
+
 function curlOnce(args: string[], timeoutMs: number): Promise<{ status: number; body: Buffer }> {
   return new Promise((resolve, reject) => {
     const child = spawn("curl", args, { stdio: ["ignore", "pipe", "pipe"] });
@@ -31,7 +42,6 @@ function curlOnce(args: string[], timeoutMs: number): Promise<{ status: number; 
     child.on("close", (code) => {
       clearTimeout(timer);
       const buf = Buffer.concat(chunks);
-      // Trailing "\n{http_code}" from -w
       const text = buf.toString("binary");
       const nl = text.lastIndexOf("\n");
       if (nl < 0) {
@@ -58,7 +68,7 @@ function toResponse(status: number, body: Buffer): Response {
 
 async function curlJson(url: string, init?: RequestInit): Promise<Response> {
   const method = (init?.method ?? "GET").toUpperCase();
-  const args = ["-sS", "-m", "45", "-w", "\n%{http_code}", "-X", method];
+  const args = ["-sS", "-m", "45", ...proxyArgs(), "-w", "\n%{http_code}", "-X", method];
   const headers = init?.headers;
   if (headers) {
     const h = headers instanceof Headers ? headers : new Headers(headers as HeadersInit);
@@ -77,10 +87,9 @@ async function curlJson(url: string, init?: RequestInit): Promise<Response> {
 async function curlFormData(url: string, form: FormData): Promise<Response> {
   const dir = await mkdtemp(path.join(tmpdir(), "tg-form-"));
   try {
-    const args = ["-sS", "-m", "90", "-w", "\n%{http_code}", "-X", "POST"];
+    const args = ["-sS", "-m", "90", ...proxyArgs(), "-w", "\n%{http_code}", "-X", "POST"];
     for (const [key, value] of form.entries()) {
       if (typeof value === "string") {
-        // --form-string: do not interpret @/&lt; and keep JSON keyboards intact
         args.push("--form-string", `${key}=${value}`);
       } else {
         const blob = value as File;
@@ -105,7 +114,6 @@ export async function tgFetch(url: string, init?: RequestInit): Promise<Response
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
       if (init?.body && typeof init.body !== "string" && !(init.body instanceof ArrayBuffer)) {
-        // FormData (sendPhoto) or other body types
         if (typeof FormData !== "undefined" && init.body instanceof FormData) {
           return await curlFormData(url, init.body);
         }

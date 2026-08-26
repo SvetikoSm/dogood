@@ -14,14 +14,15 @@ import {
 } from "@/lib/studio/telegram/manual-flow";
 import { runStudioPipelineTick } from "@/lib/studio/pipeline/orchestrator";
 import { ensureStudioSchema } from "@/lib/studio/db/ensure-schema";
+import { telegramApiBase } from "@/lib/studio/telegram/api-base";
 import { tgFetch } from "@/lib/studio/telegram/tg-fetch";
 
-const BOT_API = "https://api.telegram.org";
+const BOT_API = () => telegramApiBase();
 
 async function sendReply(chatId: number | string, text: string) {
   const token = process.env.TELEGRAM_BOT_TOKEN?.trim();
   if (!token || !chatId || !text) return;
-  await tgFetch(`${BOT_API}/bot${token}/sendMessage`, {
+  await tgFetch(`${BOT_API()}/bot${token}/sendMessage`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ chat_id: chatId, text }),
@@ -76,7 +77,7 @@ async function processUpdate(body: {
       kickTick();
     }
     if (token) {
-      await tgFetch(`${BOT_API}/bot${token}/answerCallbackQuery`, {
+      await tgFetch(`${BOT_API()}/bot${token}/answerCallbackQuery`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ callback_query_id: cb.id, text: reply.slice(0, 190) }),

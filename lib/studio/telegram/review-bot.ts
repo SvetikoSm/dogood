@@ -10,9 +10,10 @@ import { getStudioDb, schema } from "@/lib/studio/db";
 import { isStudioMockMode } from "@/lib/studio/env";
 import { absoluteFromStudioRelative } from "@/lib/studio/paths";
 import { isParallelStageMode } from "@/lib/studio/pipeline/modes";
+import { telegramApiBase } from "@/lib/studio/telegram/api-base";
 import { tgFetch } from "@/lib/studio/telegram/tg-fetch";
 
-const BOT_API = "https://api.telegram.org";
+const BOT_API = () => telegramApiBase();
 
 function getToken(): string | undefined {
   return process.env.TELEGRAM_BOT_TOKEN?.trim();
@@ -29,7 +30,7 @@ export function isTelegramReviewEnabled(): boolean {
 async function tgPost(method: string, body: Record<string, unknown>) {
   const token = getToken();
   if (!token) return { ok: false as const, error: "no token" };
-  const res = await tgFetch(`${BOT_API}/bot${token}/${method}`, {
+  const res = await tgFetch(`${BOT_API()}/bot${token}/${method}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -53,7 +54,7 @@ async function sendPhoto(
   form.append("caption", caption.slice(0, 900));
   if (replyMarkup) form.append("reply_markup", JSON.stringify(replyMarkup));
   form.append("photo", new Blob([buf]), "preview.png");
-  const res = await tgFetch(`${BOT_API}/bot${token}/sendPhoto`, { method: "POST", body: form });
+  const res = await tgFetch(`${BOT_API()}/bot${token}/sendPhoto`, { method: "POST", body: form });
   if (!res.ok) return { ok: false, error: await res.text() };
   return { ok: true };
 }

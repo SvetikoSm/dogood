@@ -7,9 +7,8 @@ import { randomUUID } from "node:crypto";
 import { getStudioDb, schema } from "@/lib/studio/db";
 import { isStudioMockMode } from "@/lib/studio/env";
 import { getStudioDataDir } from "@/lib/studio/paths";
+import { telegramApiBase } from "@/lib/studio/telegram/api-base";
 import { tgFetch } from "@/lib/studio/telegram/tg-fetch";
-
-const BOT_API = "https://api.telegram.org";
 
 const MOCK_PNG_BASE64 =
   "iVBORw0KGgoAAAANSUhEUgAAAAoAAAAKCAYAAACNMs+9AAAAFUlEQVR42mNk+M9Qz0AEYBxVSF+FAAhKDveksOskAAAAAElFTkSuQmCC";
@@ -47,11 +46,12 @@ export async function downloadTelegramFileToOrder(
   if (isStudioMockMode()) return mockDownload(orderId, fileId, sortOrder);
   if (!botToken) return false;
   try {
-    const info = await tgFetch(`${BOT_API}/bot${botToken}/getFile?file_id=${encodeURIComponent(fileId)}`);
+    const api = telegramApiBase();
+    const info = await tgFetch(`${api}/bot${botToken}/getFile?file_id=${encodeURIComponent(fileId)}`);
     const infoJson = (await info.json()) as { ok?: boolean; result?: { file_path?: string } };
     const filePath = infoJson.result?.file_path;
     if (!filePath) return false;
-    const bin = await tgFetch(`${BOT_API}/file/bot${botToken}/${filePath}`);
+    const bin = await tgFetch(`${api}/file/bot${botToken}/${filePath}`);
     if (!bin.ok) return false;
     const buf = Buffer.from(await bin.arrayBuffer());
     const ext = path.extname(filePath) || ".jpg";

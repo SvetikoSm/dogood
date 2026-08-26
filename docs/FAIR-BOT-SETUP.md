@@ -32,10 +32,12 @@ YOOKASSA_ENABLED=false   # включить после настройки уве
 
 > **Важно (актуальное состояние):** вебхуки НЕ используются — серверы Telegram
 > не могут достучаться до VPS (inbound «Connection timed out»). Вместо этого оба
-> бота обслуживает поллер `scripts/telegram-server-poller.mjs`, установленный на
-> VPS как systemd-сервис `dogood-tg-poller` (ставится автоматически при деплое).
-> Статус на сервере: `systemctl status dogood-tg-poller`.
-
+> бота обслуживает поллер `scripts/telegram-server-poller.mjs` (systemd
+> `dogood-tg-poller`). Исходящие запросы к Telegram идут через **Cloudflare WARP**
+> в режиме локального HTTP-прокси (`scripts/install-warp-telegram.sh`) — без
+> этого провайдер VPS режет доступ к `api.telegram.org`, и бот молчит, если
+> компьютер выключен. Статус: `systemctl status dogood-tg-poller` и
+> `warp-cli status`.
 ## 3. Вебхук Telegram (не используется, см. выше)
 
 После деплоя (или на живом сервере):

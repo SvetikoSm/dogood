@@ -9,9 +9,10 @@ import type { StyleSlug } from "@/lib/ops/style-masters";
 import { getStudioDb, schema } from "@/lib/studio/db";
 import { inferPetNameScript } from "@/lib/studio/script-detect";
 import { downloadTelegramFileToOrder as downloadTelegramFileToOrderShared } from "@/lib/studio/telegram/download-photo";
+import { telegramApiBase } from "@/lib/studio/telegram/api-base";
 import { tgFetch } from "@/lib/studio/telegram/tg-fetch";
 
-const BOT_API = "https://api.telegram.org";
+const BOT_API = () => telegramApiBase();
 
 function token(): string | undefined {
   return process.env.TELEGRAM_BOT_TOKEN?.trim();
@@ -24,7 +25,7 @@ type ManualFlow = "dog" | "name" | "pack";
 async function tgSend(chatId: string, text: string, keyboard?: InlineKeyboard) {
   const t = token();
   if (!t) return;
-  await tgFetch(`${BOT_API}/bot${t}/sendMessage`, {
+  await tgFetch(`${BOT_API()}/bot${t}/sendMessage`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({

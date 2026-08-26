@@ -2,10 +2,9 @@
  * Server-side Telegram poller for BOTH bots (owner + fair client).
  *
  * Why polling: Telegram cannot open inbound connections to this VPS (webhooks
- * time out). Why curl: the provider DPI blackholes most Node TLS connects to
- * api.telegram.org (connect ETIMEDOUT), while curl to the same pinned IP works
- * reliably. So getUpdates/deleteWebhook go through curl; each update is then
- * POSTed to the local Next.js webhook routes.
+ * time out). Why proxy/curl: the provider DPI blackholes most direct routes to
+ * api.telegram.org. Outbound goes through Cloudflare WARP local HTTP proxy
+ * (TELEGRAM_HTTPS_PROXY) and/or TELEGRAM_API_BASE (Cloudflare Worker).
  *
  *   node scripts/telegram-server-poller.mjs /opt/dogood/.env.production
  */
@@ -23,6 +22,27 @@ for (const line of readFileSync(envPath, "utf8").split(/\r?\n/)) {
   const eq = t.indexOf("=");
   if (eq > 0) env[t.slice(0, eq).trim()] = t.slice(eq + 1).trim();
 }
+
+// Host-side WARP proxy file (written by scripts/install-warp-telegram.sh).
+try {
+  if (existsSync("/etc/dogood/telegram-proxy.env")) {
+    for (const line of readFileSync("/etc/dogood/telegram-proxy.env", "utf8").split(/\r?\n/)) {
+      const t = line.trim();
+      if (!t || t.startsWith("#")) continue;
+      const eq = t.indexOf("=");
+      if (eq > 0) {
+        const k = t.slice(0, eq).trim();
+        const v = t.slice(eq + 1).trim();
+        if (!env[k]) env[k] = v;
+      }
+    }
+  }
+} catch {
+  /* ignore */
+}
+
+const API_BASE = (env.TELEGRAM_API_BASE || "https://api.telegram.org").replace(/\/+$/, "");
+const HTTPS_PROXY = env.TELEGRAM_HTTPS_PROXY || "";
 
 const bots = [];
 if (env.TELEGRAM_BOT_TOKEN) {
@@ -62,14 +82,13 @@ function saveOffsets() {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-/** curl → Telegram Bot API. Long-poll getUpdates needs a >25s timeout. */
+/** curl → Telegram Bot API (optionally via WARP HTTP proxy). */
 function curlJson(url, { timeoutSec = 40 } = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn(
-      "curl",
-      ["-sS", "-m", String(timeoutSec), "-w", "\n%{http_code}", url],
-      { stdio: ["ignore", "pipe", "pipe"] },
-    );
+    const args = ["-sS", "-m", String(timeoutSec), "-w", "\n%{http_code}"];
+    if (HTTPS_PROXY) args.push("-x", HTTPS_PROXY);
+    args.push(url);
+    const child = spawn("curl", args, { stdio: ["ignore", "pipe", "pipe"] });
     let out = "";
     let err = "";
     child.stdout.on("data", (c) => (out += c));
@@ -95,8 +114,7 @@ function curlJson(url, { timeoutSec = 40 } = {}) {
 }
 
 async function tg(bot, method, params = "") {
-  const url = `https://api.telegram.org/bot${bot.token}/${method}${params}`;
-  // getUpdates long-polls ~25s server-side
+  const url = `${API_BASE}/bot${bot.token}/${method}${params}`;
   const timeoutSec = method === "getUpdates" ? 40 : 20;
   return curlJson(url, { timeoutSec });
 }
@@ -126,7 +144,7 @@ async function forward(bot, update) {
 async function pollLoop(bot) {
   try {
     await tg(bot, "deleteWebhook", "?drop_pending_updates=false");
-    console.log(`[poller:${bot.name}] webhook removed, polling via curl`);
+    console.log(`[poller:${bot.name}] webhook removed, polling via curl${HTTPS_PROXY ? "+warp" : ""}`);
   } catch (e) {
     console.error(`[poller:${bot.name}] deleteWebhook failed:`, e.message);
   }
@@ -159,5 +177,7 @@ async function pollLoop(bot) {
   }
 }
 
-console.log(`[poller] starting for: ${bots.map((b) => b.name).join(", ")} (curl→api.telegram.org)`);
+console.log(
+  `[poller] starting for: ${bots.map((b) => b.name).join(", ")} (api=${API_BASE}${HTTPS_PROXY ? `; proxy=${HTTPS_PROXY}` : ""})`,
+);
 for (const bot of bots) void pollLoop(bot);

@@ -1,3 +1,4 @@
+import { telegramApiBase } from "@/lib/studio/telegram/api-base";
 import { tgFetch } from "@/lib/studio/telegram/tg-fetch";
 
 type TelegramSendResult = { ok: true } | { ok: false; error: string };
@@ -9,7 +10,7 @@ export async function sendTelegramText(text: string): Promise<TelegramSendResult
     return { ok: false, error: "missing TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID" };
   }
 
-  const url = `https://api.telegram.org/bot${encodeURIComponent(token)}/sendMessage`;
+  const url = `${telegramApiBase()}/bot${encodeURIComponent(token)}/sendMessage`;
   try {
     const res = await tgFetch(url, {
       method: "POST",
