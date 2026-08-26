@@ -146,11 +146,15 @@ export async function fetchDrivePhotosForOrder(orderId: string): Promise<{
     n += 1;
   }
 
+  // An empty folder used to reset status back to "new", which made the order
+  // get picked up again next tick, find the folder empty again, and loop
+  // forever — with no backoff, since this step itself reports success. Park
+  // it in "error" instead so a human has to look at it once.
   await db
     .update(schema.studioOrders)
     .set({
-      status: n > 0 ? "assets_loaded" : "new",
-      lastError: n === 0 ? "Drive folder had no raster images" : "",
+      status: n > 0 ? "assets_loaded" : "error",
+      lastError: n === 0 ? "Drive folder had no raster images — nothing to generate from" : "",
       updatedAt: new Date(),
     })
     .where(eq(schema.studioOrders.id, orderId));

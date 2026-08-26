@@ -256,7 +256,16 @@ export async function handleFairText(chatId: string, text: string): Promise<Fair
         .update(schema.studioOrders)
         .set({ status: "assets_loaded", updatedAt: new Date() })
         .where(eq(schema.studioOrders.id, fair.orderId));
-      await clientSend(chatId, "Принято! ⏳ Готовлю макет — обычно это несколько минут, пришлю сюда, как будет готово.");
+      await clientSend(
+        chatId,
+        [
+          "Спасибо! ✨ Эльфы взялись за макет с твоим хвостиком — это займёт около 5 минут.",
+          "",
+          "Пока можешь пообщаться с основательницей нашего бренда или поизучать соседние бренды 🐾",
+          "",
+          "Напишу, как будет готово!",
+        ].join("\n"),
+      );
       await sendStudioAlert(`🎪 Новая заявка с ярмарки: кличка «${fair.petName}», email ${t}. Генерация запущена.`);
       return { handled: true, triggerTick: true };
     }

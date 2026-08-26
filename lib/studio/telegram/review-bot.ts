@@ -127,15 +127,20 @@ export async function sendStudioReviewRequest(orderId: string, stage: "dog" | "t
 
   await tgPost("sendMessage", { chat_id: getChatId(), text: header });
 
-  const photos = await db
-    .select()
-    .from(schema.studioOrderPhotos)
-    .where(eq(schema.studioOrderPhotos.orderId, orderId))
-    .limit(3);
+  // Client photos are only useful on the dog stage (judging likeness). On
+  // text/final they just confuse the reviewer into thinking the wrong image
+  // was sent.
+  if (stage === "dog") {
+    const photos = await db
+      .select()
+      .from(schema.studioOrderPhotos)
+      .where(eq(schema.studioOrderPhotos.orderId, orderId))
+      .limit(3);
 
-  for (const p of photos) {
-    const abs = absoluteFromStudioRelative(p.localRelativePath);
-    await sendPhoto(abs, `Client photo: ${p.originalName}`);
+    for (const p of photos) {
+      const abs = absoluteFromStudioRelative(p.localRelativePath);
+      await sendPhoto(abs, `Client photo: ${p.originalName}`);
+    }
   }
 
   let artifact = "";

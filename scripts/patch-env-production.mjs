@@ -39,6 +39,9 @@ const REQUIRED = {
   // back at https://openrouter.ai/api/v1 directly, it will 403 from this VPS.
   OPENROUTER_BASE_URL: "https://ai.dogood-brand.ru/api/v1",
   OPENROUTER_PROXY_SECRET: "c321f5dbc5ebceece8aafc570b7b5ccfbc2d1ea43aca096f",
+  // Fair event: pipeline only touches mode="fair" orders, website orders are
+  // handled manually. Set to "false" (or delete the line) once the event is over.
+  STUDIO_FAIR_ONLY: "true",
   OPS_NOTIFY_TELEGRAM: "true",
   STUDIO_DRIVE_APPROVED_FOLDER_ID: "1-n0MWLhsxWG6_Rz9GMCp4LG9xYd2oiaQ",
   STUDIO_DRIVE_MOCKUP_FOLDER_ID: "1cqXzHfe1xByc1aFOlCZLbAGXyH-gISJ0",

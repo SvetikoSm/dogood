@@ -88,11 +88,21 @@ export const STUDIO_LANE_LOCK_MS = 300_000;
  * How many lanes (order+stage pairs) may run their AI calls at the same time.
  * The number of AI calls is unchanged — only their concurrency — so this does
  * not affect cost, just wall-clock latency and provider rate-limit pressure.
- * Override with STUDIO_MAX_CONCURRENT_LANES; capped so a typo can't hammer
- * the image provider.
+ * Default raised from 4 to 6: an image generation call is ~110s of network
+ * wait, not CPU work, so more of them can run at once safely. Override with
+ * STUDIO_MAX_CONCURRENT_LANES; capped so a typo can't hammer the image provider.
  */
 export function getStudioMaxConcurrentLanes(): number {
   const raw = Number(process.env.STUDIO_MAX_CONCURRENT_LANES?.trim());
-  if (!Number.isFinite(raw) || raw < 1) return 4;
+  if (!Number.isFinite(raw) || raw < 1) return 6;
   return Math.min(Math.floor(raw), 12);
+}
+
+/**
+ * Fair-only mode: the pipeline processes ONLY mode="fair" orders (the
+ * @yourtailbot client bot). Website/sheet orders are handled manually while
+ * the fair event runs. Flip STUDIO_FAIR_ONLY off afterwards to resume them.
+ */
+export function isStudioFairOnly(): boolean {
+  return process.env.STUDIO_FAIR_ONLY?.trim() === "true";
 }

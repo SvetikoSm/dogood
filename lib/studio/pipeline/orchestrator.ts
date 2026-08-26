@@ -1,9 +1,10 @@
 import "server-only";
 
-import { and, asc, eq, inArray, lt, or } from "drizzle-orm";
+import { and, eq, inArray, lt, or } from "drizzle-orm";
 
 import {
   getStudioMaxConcurrentLanes,
+  isStudioFairOnly,
   STUDIO_LANE_LOCK_MS,
   STUDIO_MAX_DOG_GENERATIONS,
   STUDIO_MAX_FINAL_GENERATIONS,
@@ -398,24 +399,38 @@ function laneKey(orderId: string, stage: string): string {
 }
 
 /**
- * Every lane that currently has automated work, oldest order first (the
- * customer who arrived first should also finish first), capped at `limit`.
- * Lanes still in retry backoff are skipped.
+ * Every lane that currently has automated work, fair-event orders first (a
+ * customer is standing at the stand waiting; website orders are not urgent),
+ * then oldest order first within each group, capped at `limit`. Lanes still
+ * in retry backoff are skipped. When STUDIO_FAIR_ONLY is set, website/sheet
+ * orders are excluded entirely instead of just deprioritized.
  */
 async function collectRunnableLanes(limit: number): Promise<Lane[]> {
   const db = getStudioDb();
+  const fairOnly = isStudioFairOnly();
   const orders = await db
     .select()
     .from(schema.studioOrders)
     .where(
-      or(
-        inArray(schema.studioOrders.status, [...LEGACY_WORK_STATUSES]),
-        inArray(schema.studioOrders.status, [...FINAL_WORK_STATUSES]),
-        eq(schema.studioOrders.status, "in_progress"),
+      and(
+        or(
+          inArray(schema.studioOrders.status, [...LEGACY_WORK_STATUSES]),
+          inArray(schema.studioOrders.status, [...FINAL_WORK_STATUSES]),
+          eq(schema.studioOrders.status, "in_progress"),
+        ),
+        fairOnly ? eq(schema.studioOrders.mode, "fair") : undefined,
       ),
-    )
-    .orderBy(asc(schema.studioOrders.createdAt));
+    );
   if (!orders.length) return [];
+
+  // Fair orders first (a live customer is waiting), then oldest-first within
+  // each group — same idea FIX-7 already used for cross-order fairness.
+  orders.sort((a, b) => {
+    const rank = (o: (typeof orders)[number]) => (o.mode === "fair" ? 0 : 1);
+    const r = rank(a) - rank(b);
+    if (r !== 0) return r;
+    return a.createdAt.getTime() - b.createdAt.getTime();
+  });
 
   const laneStates = await db
     .select()
@@ -441,8 +456,9 @@ async function collectRunnableLanes(limit: number): Promise<Lane[]> {
       mode: order.mode,
       createdAt: order.createdAt,
     };
+    const orderLanes: Lane[] = [];
     const push = (stage: StudioLaneStage) => {
-      if (!blocked.has(laneKey(order.id, stage))) lanes.push({ ...base, stage });
+      if (!blocked.has(laneKey(order.id, stage))) orderLanes.push({ ...base, stage });
     };
 
     if (isParallelStageMode(order.mode)) {
@@ -459,9 +475,16 @@ async function collectRunnableLanes(limit: number): Promise<Lane[]> {
 
     if ((FINAL_WORK_STATUSES as readonly string[]).includes(order.status)) push("final");
 
+    if (!orderLanes.length) continue;
+    // A single order's lanes are added atomically — either all of them or
+    // none — so dog+text never get split across ticks by the limit. The
+    // only exception: an empty batch always takes at least one order's
+    // lanes, even if that alone exceeds the limit, so it isn't stuck forever.
+    if (lanes.length > 0 && lanes.length + orderLanes.length > limit) break;
+    lanes.push(...orderLanes);
     if (lanes.length >= limit) break;
   }
-  return lanes.slice(0, limit);
+  return lanes;
 }
 
 /* ---------------- lane failure bookkeeping ---------------- */
@@ -698,11 +721,17 @@ export async function runStudioPipelineTick(): Promise<{ ok: true; detail: strin
   }, 60_000);
 
   try {
-    try {
-      const sync = await syncStudioOrdersFromGoogleSheet();
-      actions.push(`synced=${sync.upserted}`);
-    } catch (e) {
-      actions.push(`sync_fail=${e instanceof Error ? e.message : String(e)}`);
+    if (isStudioFairOnly()) {
+      // Fair-only mode: don't even pull new rows from the sheet in — website
+      // orders must stay out of the pipeline entirely while the event runs.
+      actions.push("sync_skipped=fair_only");
+    } else {
+      try {
+        const sync = await syncStudioOrdersFromGoogleSheet();
+        actions.push(`synced=${sync.upserted}`);
+      } catch (e) {
+        actions.push(`sync_fail=${e instanceof Error ? e.message : String(e)}`);
+      }
     }
 
     try {

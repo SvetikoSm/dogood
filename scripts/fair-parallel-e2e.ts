@@ -10,12 +10,75 @@
  */
 process.env.STUDIO_MOCK_AI = "true";
 
+import fs from "node:fs/promises";
+import path from "node:path";
+import { randomUUID } from "node:crypto";
+
 import { and, eq, inArray } from "drizzle-orm";
 
 import { getStudioDb, schema } from "../lib/studio/db";
 import { ensureStudioSchema } from "../lib/studio/db/ensure-schema";
 import { runStudioPipelineTick } from "../lib/studio/pipeline/orchestrator";
+import { getStudioDataDir } from "../lib/studio/paths";
 import { handleFairPhoto, handleFairText } from "../lib/studio/telegram/fair-flow";
+
+const MOCK_PNG_BASE64 =
+  "iVBORw0KGgoAAAANSUhEUgAAAAoAAAAKCAYAAACNMs+9AAAAFUlEQVR42mNk+M9Qz0AEYBxVSF+FAAhKDveksOskAAAAAElFTkSuQmCC";
+
+/**
+ * A "website" order (mode="full", same parallel dog+text lanes as "fair") in
+ * status=assets_loaded WITH a photo already attached, so resolveIngestStep
+ * moves it straight to in_progress instead of running FETCH_DRIVE_PHOTOS —
+ * which would otherwise make a real Google Drive API call for a fake folder id.
+ */
+async function seedWebsiteOrder(id: string, createdAt?: Date): Promise<void> {
+  const db = getStudioDb();
+  await db.insert(schema.studioOrders).values({
+    id,
+    sheetOrderId: id,
+    customerName: "website-test",
+    petNameRaw: "Тест",
+    petNameScript: "cyrillic",
+    designSlug: "life",
+    status: "assets_loaded",
+    mode: "full",
+    sheetPayloadJson: "{}",
+    ...(createdAt ? { createdAt } : {}),
+  });
+  const rel = path.posix.join("cache", id, "0_seed.png");
+  const abs = path.join(getStudioDataDir(), ...rel.split("/"));
+  await fs.mkdir(path.dirname(abs), { recursive: true });
+  await fs.writeFile(abs, Buffer.from(MOCK_PNG_BASE64, "base64"));
+  await db.insert(schema.studioOrderPhotos).values({
+    id: randomUUID(),
+    orderId: id,
+    sortOrder: 0,
+    driveFileId: "",
+    originalName: "seed.png",
+    mimeType: "image/png",
+    localRelativePath: rel,
+  });
+}
+
+async function removeOrder(id: string): Promise<void> {
+  const db = getStudioDb();
+  await db.delete(schema.studioStepRuns).where(eq(schema.studioStepRuns.orderId, id));
+  await db.delete(schema.studioOrderPhotos).where(eq(schema.studioOrderPhotos.orderId, id));
+  await db.delete(schema.studioLaneState).where(eq(schema.studioLaneState.orderId, id));
+  await db.delete(schema.studioOrders).where(eq(schema.studioOrders.id, id));
+}
+
+async function removeFairClient(chatId: string): Promise<void> {
+  const db = getStudioDb();
+  const [row] = await db
+    .select({ id: schema.studioFairOrders.id, orderId: schema.studioFairOrders.orderId })
+    .from(schema.studioFairOrders)
+    .where(eq(schema.studioFairOrders.chatId, chatId))
+    .limit(1);
+  if (!row) return;
+  await db.delete(schema.studioFairOrders).where(eq(schema.studioFairOrders.id, row.id));
+  await removeOrder(row.orderId);
+}
 
 const CLIENTS = [
   { chatId: "PARALLEL_CHAT_A", petName: "Альфа", email: "alpha@example.com" },
@@ -243,6 +306,78 @@ async function main() {
     .limit(1);
   if (!textLaneState?.nextRetryAt || textLaneState.nextRetryAt.getTime() < Date.now()) {
     throw new Error("failure isolation failed: text lane backoff was cleared by another lane's success");
+  }
+
+  // === 6. Fair-only mode ====================================================
+  // STUDIO_FAIR_ONLY must exclude website (mode="full") orders from the
+  // pipeline entirely — not just deprioritize them.
+  console.log("\n--- FIX-1: fair-only mode ---");
+  const fairOnlyChat = "FAIRONLY_CHAT_X";
+  await handleFairPhoto(fairOnlyChat, `mock-${fairOnlyChat}`);
+  await handleFairText(fairOnlyChat, "Дельта");
+  await handleFairText(fairOnlyChat, "delta@example.com");
+  const fairOnlyOrderId = (await fairRowFor(fairOnlyChat)).orderId;
+
+  const websiteOrderIds = ["TEST_WEBSITE_ORDER_1", "TEST_WEBSITE_ORDER_2"];
+  for (const id of websiteOrderIds) await seedWebsiteOrder(id);
+
+  process.env.STUDIO_FAIR_ONLY = "true";
+  try {
+    const fairOnlyTick = await runStudioPipelineTick();
+    console.log("fair-only tick:", fairOnlyTick.detail.slice(0, 300));
+
+    for (const id of websiteOrderIds) {
+      const runs = await stepRunsFor(id);
+      if (runs.length > 0) {
+        throw new Error(
+          `fair-only mode failed: website order ${id} got ${runs.length} step run(s), expected 0`,
+        );
+      }
+    }
+    const fairOnlyRuns = await stepRunsFor(fairOnlyOrderId);
+    if (fairOnlyRuns.length === 0) {
+      throw new Error("fair-only mode failed: the fair order itself did not progress");
+    }
+    console.log(
+      `fair-only mode OK: website orders untouched (0 step runs each), fair order progressed (${fairOnlyRuns.length} step run(s))`,
+    );
+  } finally {
+    process.env.STUDIO_FAIR_ONLY = "";
+    for (const id of websiteOrderIds) await removeOrder(id);
+    await removeFairClient(fairOnlyChat);
+  }
+
+  // === 7. Priority + atomic lane grouping under real contention ============
+  // Six older "full" orders (2 lanes each = 12) alone exceed the 6-lane
+  // default limit, so if fair orders weren't sorted first, the fair order's
+  // dog+text pair could be starved or split across ticks.
+  console.log("\n--- FIX-2/FIX-3: fair priority + no split lanes under contention ---");
+  const priorityChat = "PRIORITY_CHAT_Y";
+  await handleFairPhoto(priorityChat, `mock-${priorityChat}`);
+  await handleFairText(priorityChat, "Эпсилон");
+  await handleFairText(priorityChat, "epsilon@example.com");
+  const priorityOrderId = (await fairRowFor(priorityChat)).orderId;
+
+  const oldWebsiteIds = Array.from({ length: 6 }, (_, i) => `TEST_OLD_WEBSITE_${i + 1}`);
+  const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+  for (const id of oldWebsiteIds) await seedWebsiteOrder(id, weekAgo);
+
+  try {
+    const priorityTick = await runStudioPipelineTick();
+    console.log("priority tick:", priorityTick.detail.slice(0, 500));
+
+    const priorityRuns = await stepRunsFor(priorityOrderId);
+    const ranDog = priorityRuns.some((r) => r.stepKey.startsWith("DOG_") && r.status === "success");
+    const ranText = priorityRuns.some((r) => r.stepKey.startsWith("TEXT_") && r.status === "success");
+    if (!ranDog || !ranText) {
+      throw new Error(
+        `priority failed: fair order did not advance both stages in one tick despite 6 older queued orders (dog=${ranDog}, text=${ranText})`,
+      );
+    }
+    console.log("priority OK: fair order's dog+text lanes both ran in the same tick, ahead of 6 older website orders");
+  } finally {
+    for (const id of oldWebsiteIds) await removeOrder(id);
+    await removeFairClient(priorityChat);
   }
 
   await cleanup();
