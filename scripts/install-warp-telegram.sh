@@ -6,6 +6,9 @@
 #   HTTPS_PROXY=http://127.0.0.1:40000
 # Docker containers on the default bridge reach the host proxy at:
 #   http://172.17.0.1:40000
+# (via the dogood-warp-bridge socat service this script installs below —
+# warp-svc itself only ever binds 127.0.0.1, so without that bridge the
+# docker0 address above is unreachable and the app can send nothing).
 set -euo pipefail
 
 export DEBIAN_FRONTEND=noninteractive
@@ -67,3 +70,38 @@ TELEGRAM_HTTPS_PROXY=http://127.0.0.1:${PROXY_PORT}
 TELEGRAM_HTTPS_PROXY_DOCKER=http://172.17.0.1:${PROXY_PORT}
 EOF
 echo "[warp] wrote /etc/dogood/telegram-proxy.env"
+
+# warp-svc only binds 127.0.0.1, so the docker bridge address above is
+# useless on its own — the dogood container connects out on 172.17.0.1 and
+# gets nothing. Bridge that port onto the docker0 gateway with socat so the
+# container's outbound sendMessage/sendPhoto calls actually reach the proxy.
+echo "[warp] bridging proxy port to the docker bridge (172.17.0.1:${PROXY_PORT})"
+command -v socat >/dev/null 2>&1 || apt-get install -y -qq socat >/dev/null
+
+cat > /etc/systemd/system/dogood-warp-bridge.service <<EOF
+[Unit]
+Description=Expose WARP proxy (127.0.0.1:${PROXY_PORT}) to the Docker bridge for the dogood container
+After=network-online.target warp-svc.service
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/bin/socat TCP-LISTEN:${PROXY_PORT},bind=172.17.0.1,fork,reuseaddr TCP:127.0.0.1:${PROXY_PORT}
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl daemon-reload
+systemctl enable --now dogood-warp-bridge >/dev/null 2>&1 || true
+command -v ufw >/dev/null 2>&1 && ufw allow in on docker0 to 172.17.0.1 port "${PROXY_PORT}" proto tcp >/dev/null 2>&1 || true
+
+sleep 1
+bridge_code=$(curl -sS -m 15 -x "http://172.17.0.1:${PROXY_PORT}" \
+  -o /dev/null -w "%{http_code}" https://api.telegram.org/ || echo 000)
+echo "[warp] api.telegram.org via docker-bridge proxy -> HTTP $bridge_code"
+if [ "$bridge_code" != "302" ] && [ "$bridge_code" != "200" ]; then
+  echo "[warp] WARNING: docker-bridge proxy probe failed (got $bridge_code). The dogood container will not be able to send Telegram messages."
+  exit 1
+fi
