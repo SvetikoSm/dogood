@@ -50,7 +50,7 @@ function curlOnce(args: string[], timeoutMs: number): Promise<{ status: number; 
 }
 
 function toResponse(status: number, body: Buffer): Response {
-  return new Response(body, {
+  return new Response(new Uint8Array(body), {
     status: status || 502,
     headers: { "Content-Type": "application/json" },
   });
