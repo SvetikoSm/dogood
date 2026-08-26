@@ -1,19 +1,16 @@
 /**
- * Server-side Telegram poller for BOTH bots (owner review bot + fair client bot).
+ * Server-side Telegram poller for BOTH bots (owner + fair client).
  *
- * Why: Telegram's datacenters cannot open inbound connections to this VPS
- * (webhooks fail with "Connection timed out"), while outbound calls from the
- * VPS to api.telegram.org work fine. So instead of webhooks we long-poll
- * getUpdates here and forward each update to the local Next.js app — the
- * same routes the webhooks would have hit, so all bot logic stays in one place.
+ * Why polling: Telegram cannot open inbound connections to this VPS (webhooks
+ * time out). Why curl: the provider DPI blackholes most Node TLS connects to
+ * api.telegram.org (connect ETIMEDOUT), while curl to the same pinned IP works
+ * reliably. So getUpdates/deleteWebhook go through curl; each update is then
+ * POSTed to the local Next.js webhook routes.
  *
- * Runs on the VPS host as a systemd service (see install-telegram-poller.sh):
  *   node scripts/telegram-server-poller.mjs /opt/dogood/.env.production
  */
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
-import https from "node:https";
-import net from "node:net";
-import tls from "node:tls";
+import { spawn } from "node:child_process";
 
 const envPath = process.argv[2] || "/opt/dogood/.env.production";
 const APP = "http://127.0.0.1:3000";
@@ -65,66 +62,43 @@ function saveOffsets() {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-/**
- * The VPS provider's DPI throttles Node's TLS ClientHello to api.telegram.org
- * (curl works, plain fetch flaps with connect timeouts). Splitting the first
- * TLS record into two TCP writes defeats the filter — same trick as
- * lib/studio/telegram/tg-fetch.ts in the app container.
- */
-class FragmentedHelloAgent extends https.Agent {
-  createConnection(options, callback) {
-    const host = String(options.host ?? "");
-    const socket = net.connect({ host, port: Number(options.port ?? 443) });
-    socket.setNoDelay(true);
-
-    let helloSent = false;
-    const rawWrite = socket.write.bind(socket);
-    socket.write = (data, encoding, cb) => {
-      if (!helloSent && Buffer.isBuffer(data) && data.length > 20) {
-        helloSent = true;
-        rawWrite(data.subarray(0, 5));
-        return rawWrite(data.subarray(5), encoding, cb);
+/** curl → Telegram Bot API. Long-poll getUpdates needs a >25s timeout. */
+function curlJson(url, { timeoutSec = 40 } = {}) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(
+      "curl",
+      ["-sS", "-m", String(timeoutSec), "-w", "\n%{http_code}", url],
+      { stdio: ["ignore", "pipe", "pipe"] },
+    );
+    let out = "";
+    let err = "";
+    child.stdout.on("data", (c) => (out += c));
+    child.stderr.on("data", (c) => (err += c));
+    child.on("error", reject);
+    child.on("close", (code) => {
+      if (code !== 0 && !out) {
+        reject(new Error(err.trim() || `curl exit ${code}`));
+        return;
       }
-      return rawWrite(data, encoding, cb);
-    };
-
-    const tlsSocket = tls.connect({ socket, servername: options.servername ?? host });
-    if (callback) {
-      tlsSocket.once("secureConnect", () => callback(null, tlsSocket));
-      tlsSocket.once("error", (err) => callback(err, tlsSocket));
-    }
-    return tlsSocket;
-  }
+      const nl = out.lastIndexOf("\n");
+      const bodyText = nl >= 0 ? out.slice(0, nl) : out;
+      const status = Number(nl >= 0 ? out.slice(nl + 1) : 0) || 0;
+      let body = null;
+      try {
+        body = JSON.parse(bodyText);
+      } catch {
+        body = null;
+      }
+      resolve({ status, body });
+    });
+  });
 }
-const tgAgent = new FragmentedHelloAgent({ keepAlive: false });
 
 async function tg(bot, method, params = "") {
-  return new Promise((resolve, reject) => {
-    const req = https.request(
-      {
-        agent: tgAgent,
-        hostname: "api.telegram.org",
-        path: `/bot${bot.token}/${method}${params}`,
-        method: "GET",
-      },
-      (res) => {
-        const chunks = [];
-        res.on("data", (c) => chunks.push(c));
-        res.on("end", () => {
-          let body = null;
-          try {
-            body = JSON.parse(Buffer.concat(chunks).toString("utf8"));
-          } catch {}
-          resolve({ status: res.statusCode ?? 0, body });
-        });
-        res.socket?.on("error", () => {});
-      },
-    );
-    req.on("error", reject);
-    // getUpdates long-polls for 25s server-side; kill anything slower than 40s.
-    req.setTimeout(40_000, () => req.destroy(new Error("tg request timeout")));
-    req.end();
-  });
+  const url = `https://api.telegram.org/bot${bot.token}/${method}${params}`;
+  // getUpdates long-polls ~25s server-side
+  const timeoutSec = method === "getUpdates" ? 40 : 20;
+  return curlJson(url, { timeoutSec });
 }
 
 /** POST one update into the local app; retry until the app accepts it. */
@@ -140,7 +114,6 @@ async function forward(bot, update) {
         body: JSON.stringify(update),
       });
       if (res.ok) return;
-      // 401/400/503 are app-level verdicts, not transient — do not retry forever.
       console.error(`[poller:${bot.name}] app answered ${res.status} for update ${update.update_id}`);
       if (res.status !== 502 && res.status !== 503 && res.status !== 504) return;
     } catch (e) {
@@ -151,10 +124,9 @@ async function forward(bot, update) {
 }
 
 async function pollLoop(bot) {
-  // getUpdates conflicts with an active webhook — remove it first.
   try {
     await tg(bot, "deleteWebhook", "?drop_pending_updates=false");
-    console.log(`[poller:${bot.name}] webhook removed, polling started`);
+    console.log(`[poller:${bot.name}] webhook removed, polling via curl`);
   } catch (e) {
     console.error(`[poller:${bot.name}] deleteWebhook failed:`, e.message);
   }
@@ -165,7 +137,6 @@ async function pollLoop(bot) {
       const r = await tg(bot, "getUpdates", `?timeout=25${offset}`);
 
       if (r.status === 409) {
-        // Another consumer (stray webhook or second poller) — reclaim and go on.
         await tg(bot, "deleteWebhook", "?drop_pending_updates=false");
         await sleep(3000);
         continue;
@@ -188,5 +159,5 @@ async function pollLoop(bot) {
   }
 }
 
-console.log(`[poller] starting for: ${bots.map((b) => b.name).join(", ")} (node ${process.version})`);
+console.log(`[poller] starting for: ${bots.map((b) => b.name).join(", ")} (curl→api.telegram.org)`);
 for (const bot of bots) void pollLoop(bot);

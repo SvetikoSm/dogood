@@ -1,87 +1,116 @@
 import "server-only";
 
-import net from "node:net";
-import tls from "node:tls";
-
-import { Agent, fetch as undiciFetch } from "undici";
+import { spawn } from "node:child_process";
+import { randomBytes } from "node:crypto";
+import { mkdtemp, writeFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 
 /**
- * fetch для api.telegram.org с обходом DPI-блокировки.
+ * fetch для api.telegram.org через curl.
  *
- * Хостинг VPS (Timeweb) режет исходящие TLS-соединения Node к Telegram по
- * отпечатку ClientHello: curl с того же сервера проходит стабильно, а обычный
- * fetch/undici зависает на connect (UND_ERR_CONNECT_TIMEOUT) в большинстве
- * попыток. Разбиение первой TLS-записи (ClientHello с plaintext SNI) на два
- * TCP-пакета обманывает DPI — проверено с VPS: plain Node флапает, а
- * фрагментированный вариант отвечает 6/6. Тот же приём, что в
- * `lib/payments/dpi-safe-fetch.ts` для lknpd.nalog.ru, но здесь полный fetch
- * (undici) — нужны FormData (sendPhoto) и бинарные ответы (скачивание фото).
- *
- * Дополняет пин IP в /etc/hosts (scripts/tg-ip-pin.sh): пин выбирает доступную
- * подсеть Telegram, фрагментация лечит DPI-фильтр на самом соединении.
+ * На Timeweb VPS Node TLS к api.telegram.org почти всегда даёт connect
+ * ETIMEDOUT (DPI), а curl к тому же pinned IP проходит. Поэтому все ответы
+ * бота (sendMessage / sendPhoto / getFile / …) уходят через curl.
  */
-const fragmentedAgent = new Agent({
-  connect(opts, callback) {
-    const host = opts.hostname;
-    const socket = net.connect({ host, port: Number(opts.port) || 443 });
-    socket.setNoDelay(true);
-
-    let helloSent = false;
-    const rawWrite = socket.write.bind(socket);
-    socket.write = ((data: unknown, encoding?: unknown, cb?: unknown) => {
-      if (!helloSent && Buffer.isBuffer(data) && data.length > 20) {
-        helloSent = true;
-        rawWrite(data.subarray(0, 5));
-        return rawWrite(data.subarray(5), encoding as BufferEncoding, cb as () => void);
-      }
-      return rawWrite(data as Buffer, encoding as BufferEncoding, cb as () => void);
-    }) as typeof socket.write;
-
-    const tlsSocket = tls.connect({
-      socket,
-      servername: opts.servername || host,
-      ALPNProtocols: ["http/1.1"],
-    });
-
-    let settled = false;
+function curlOnce(args: string[], timeoutMs: number): Promise<{ status: number; body: Buffer }> {
+  return new Promise((resolve, reject) => {
+    const child = spawn("curl", args, { stdio: ["ignore", "pipe", "pipe"] });
+    const chunks: Buffer[] = [];
+    let err = "";
     const timer = setTimeout(() => {
-      if (settled) return;
-      settled = true;
-      tlsSocket.destroy();
-      callback(new Error("tgFetch: connect timeout"), null);
-    }, 10_000);
-    tlsSocket.once("secureConnect", () => {
-      if (settled) return;
-      settled = true;
+      child.kill("SIGKILL");
+      reject(new Error("tgFetch: curl timeout"));
+    }, timeoutMs);
+    child.stdout.on("data", (c: Buffer) => chunks.push(c));
+    child.stderr.on("data", (c: Buffer) => (err += c.toString()));
+    child.on("error", (e) => {
       clearTimeout(timer);
-      callback(null, tlsSocket);
+      reject(e);
     });
-    tlsSocket.once("error", (err) => {
-      if (settled) return;
-      settled = true;
+    child.on("close", (code) => {
       clearTimeout(timer);
-      callback(err, null);
+      const buf = Buffer.concat(chunks);
+      // Trailing "\n{http_code}" from -w
+      const text = buf.toString("binary");
+      const nl = text.lastIndexOf("\n");
+      if (nl < 0) {
+        reject(new Error(err.trim() || `curl exit ${code}`));
+        return;
+      }
+      const status = Number(text.slice(nl + 1)) || 0;
+      const body = Buffer.from(text.slice(0, nl), "binary");
+      if (!status && code !== 0) {
+        reject(new Error(err.trim() || `curl exit ${code}`));
+        return;
+      }
+      resolve({ status, body });
     });
-  },
-});
+  });
+}
 
-/**
- * Drop-in замена глобального fetch для запросов к api.telegram.org.
- *
- * Сетевые сбои ретраятся до 3 раз: даже с фрагментацией провайдер изредка
- * роняет сам TCP-connect (~1 раз в несколько минут), а потерянный ответ
- * клиенту (макет, ссылка на оплату, чек) стоит дороже пары секунд ожидания.
- * HTTP-ошибки (4xx/5xx от Telegram) не ретраятся — их разбирает вызывающий код.
- */
+function toResponse(status: number, body: Buffer): Response {
+  return new Response(body, {
+    status: status || 502,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
+async function curlJson(url: string, init?: RequestInit): Promise<Response> {
+  const method = (init?.method ?? "GET").toUpperCase();
+  const args = ["-sS", "-m", "45", "-w", "\n%{http_code}", "-X", method];
+  const headers = init?.headers;
+  if (headers) {
+    const h = headers instanceof Headers ? headers : new Headers(headers as HeadersInit);
+    h.forEach((v, k) => {
+      args.push("-H", `${k}: ${v}`);
+    });
+  }
+  if (init?.body != null && typeof init.body === "string") {
+    args.push("--data-binary", init.body);
+  }
+  args.push(url);
+  const { status, body } = await curlOnce(args, 50_000);
+  return toResponse(status, body);
+}
+
+async function curlFormData(url: string, form: FormData): Promise<Response> {
+  const dir = await mkdtemp(path.join(tmpdir(), "tg-form-"));
+  try {
+    const args = ["-sS", "-m", "90", "-w", "\n%{http_code}", "-X", "POST"];
+    for (const [key, value] of form.entries()) {
+      if (typeof value === "string") {
+        // --form-string: do not interpret @/&lt; and keep JSON keyboards intact
+        args.push("--form-string", `${key}=${value}`);
+      } else {
+        const blob = value as File;
+        const buf = Buffer.from(await blob.arrayBuffer());
+        const filename = blob.name || "photo.png";
+        const tmp = path.join(dir, `${randomBytes(4).toString("hex")}-${filename}`);
+        await writeFile(tmp, buf);
+        const type = blob.type || "application/octet-stream";
+        args.push("-F", `${key}=@${tmp};filename=${filename};type=${type}`);
+      }
+    }
+    args.push(url);
+    const { status, body } = await curlOnce(args, 100_000);
+    return toResponse(status, body);
+  } finally {
+    await rm(dir, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
 export async function tgFetch(url: string, init?: RequestInit): Promise<Response> {
   let lastError: unknown;
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
-      const res = await undiciFetch(url, {
-        ...(init as Parameters<typeof undiciFetch>[1]),
-        dispatcher: fragmentedAgent,
-      } as Parameters<typeof undiciFetch>[1]);
-      return res as unknown as Response;
+      if (init?.body && typeof init.body !== "string" && !(init.body instanceof ArrayBuffer)) {
+        // FormData (sendPhoto) or other body types
+        if (typeof FormData !== "undefined" && init.body instanceof FormData) {
+          return await curlFormData(url, init.body);
+        }
+      }
+      return await curlJson(url, init);
     } catch (e) {
       lastError = e;
       if (attempt < 3) await new Promise((r) => setTimeout(r, attempt * 1500));
