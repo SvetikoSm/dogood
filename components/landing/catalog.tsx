@@ -18,13 +18,6 @@ export default async function Catalog() {
         <p className="mb-3 text-xs font-semibold uppercase tracking-[0.2em] text-dogood-muted">
           витрина
         </p>
-        <h2 className="font-display text-3xl font-bold uppercase tracking-tight text-foreground sm:text-4xl lg:text-5xl">
-          Три базовых дизайна
-        </h2>
-        <p className="mt-4 text-base leading-relaxed text-muted-foreground sm:text-lg">
-          Выберите стиль — в дизайне мы заменим графику на портрет вашего питомца и
-          кличку.
-        </p>
         <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
           Отправляете нам фото -&gt; мы высылаем макет футболки -&gt; оплата только если
           понравится макет

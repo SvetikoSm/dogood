@@ -1,7 +1,7 @@
 "use client";
 
 import * as Tabs from "@radix-ui/react-tabs";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { Layout, Sparkles, Zap } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -25,12 +25,6 @@ export function CatalogFeature({ designs }: { designs: CatalogDesign[] }) {
     design: d,
   }));
   const [activeTab, setActiveTab] = useState(tabs[0]!.value);
-  const activeIndex = useMemo(
-    () => tabs.findIndex((tab) => tab.value === activeTab),
-    [tabs, activeTab],
-  );
-  const prevTab = tabs[(activeIndex - 1 + tabs.length) % tabs.length];
-  const nextTab = tabs[(activeIndex + 1) % tabs.length];
 
   return (
     <Tabs.Root value={activeTab} onValueChange={setActiveTab} className="w-full">
@@ -83,23 +77,6 @@ export function CatalogFeature({ designs }: { designs: CatalogDesign[] }) {
                   catalogDesignId={tab.value}
                   priority={tab.value === tabs[0]?.value}
                 />
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    onClick={() => setActiveTab(prevTab!.value)}
-                    className="h-10 w-full rounded-full bg-white/80 px-4 text-xs font-semibold uppercase tracking-wide text-neutral-800 hover:bg-white sm:w-auto"
-                  >
-                    ← Предыдущий стиль
-                  </Button>
-                  <Button
-                    type="button"
-                    onClick={() => setActiveTab(nextTab!.value)}
-                    className="h-10 w-full rounded-full bg-fuchsia-600 px-4 text-xs font-semibold uppercase tracking-wide text-white hover:bg-fuchsia-500 sm:w-auto"
-                  >
-                    Следующий стиль →
-                  </Button>
-                </div>
               </div>
               <div className="flex min-w-0 flex-col gap-4 lg:gap-5">
                 <p className="text-muted-foreground lg:text-lg">
@@ -117,7 +94,7 @@ export function CatalogFeature({ designs }: { designs: CatalogDesign[] }) {
                   если понравится макет
                 </p>
                 <Button asChild size="lg" className="mt-2 w-fit gap-2 bg-primary">
-                  <a href={`/?style=${tab.value}#order`}>Оформить в этом стиле</a>
+                  <a href={`/?style=${tab.value}#order`}>Получить бесплатный макет</a>
                 </Button>
               </div>
             </div>
