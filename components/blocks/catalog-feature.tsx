@@ -34,28 +34,30 @@ export function CatalogFeature({ designs }: { designs: CatalogDesign[] }) {
 
   return (
     <Tabs.Root value={activeTab} onValueChange={setActiveTab} className="w-full">
-      <Tabs.List
-        className="grid w-full gap-1.5 sm:gap-3"
-        style={{
-          gridTemplateColumns: `repeat(${tabs.length}, minmax(0, 1fr))`,
-        }}
-        aria-label="Три базовых дизайна"
-      >
-        {tabs.map((tab) => (
-          <Tabs.Trigger
-            key={tab.value}
-            value={tab.value}
-            className={cn(
-              "flex min-h-[4.25rem] w-full min-w-0 flex-col items-center justify-center gap-1 rounded-lg border px-1 py-2 text-center text-[10px] font-semibold leading-snug text-muted-foreground transition-colors sm:min-h-0 sm:flex-row sm:gap-2 sm:rounded-xl sm:px-3 sm:py-3 sm:text-left sm:text-sm",
-              "border-fuchsia-200 bg-white/70 hover:bg-white",
-              "data-[state=active]:border-dogood-pink/50 data-[state=active]:bg-fuchsia-50 data-[state=active]:text-foreground",
-            )}
-          >
-            {tab.icon}
-            <span className="max-w-full break-words leading-tight">{tab.label}</span>
-          </Tabs.Trigger>
-        ))}
-      </Tabs.List>
+      {tabs.length > 1 ? (
+        <Tabs.List
+          className="grid w-full gap-1.5 sm:gap-3"
+          style={{
+            gridTemplateColumns: `repeat(${tabs.length}, minmax(0, 1fr))`,
+          }}
+          aria-label="Три базовых дизайна"
+        >
+          {tabs.map((tab) => (
+            <Tabs.Trigger
+              key={tab.value}
+              value={tab.value}
+              className={cn(
+                "flex min-h-[4.25rem] w-full min-w-0 flex-col items-center justify-center gap-1 rounded-lg border px-1 py-2 text-center text-[10px] font-semibold leading-snug text-muted-foreground transition-colors sm:min-h-0 sm:flex-row sm:gap-2 sm:rounded-xl sm:px-3 sm:py-3 sm:text-left sm:text-sm",
+                "border-fuchsia-200 bg-white/70 hover:bg-white",
+                "data-[state=active]:border-dogood-pink/50 data-[state=active]:bg-fuchsia-50 data-[state=active]:text-foreground",
+              )}
+            >
+              {tab.icon}
+              <span className="max-w-full break-words leading-tight">{tab.label}</span>
+            </Tabs.Trigger>
+          ))}
+        </Tabs.List>
+      ) : null}
 
       <div className="mt-8 rounded-2xl border border-fuchsia-200 bg-white/80 p-5 shadow-[0_18px_50px_rgba(244,114,182,0.12)] sm:p-8 lg:p-12">
         {tabs.map((tab) => (

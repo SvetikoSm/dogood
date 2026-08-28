@@ -1,16 +1,23 @@
+// BACKUP COPY — not compiled, see docs/SITE-ROLLBACK.md
 "use client";
 
 import type { FormEvent } from "react";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import Link from "next/link";
 import { DogoodButton } from "@/components/ui/dogood-button";
+import { ImageLightbox } from "@/components/ui/image-lightbox";
+import { ProductPhoto } from "@/components/ui/product-photo";
 import { Section, SectionHeading } from "@/components/ui/section";
 import {
   blackShirtPrintColors,
+  deliveryMethods,
   printStyles,
+  shirtColors,
   shirtGenders,
   shirtSizes,
+  sheltersForOrderForm,
 } from "@/lib/landing-data";
+import { getOrderFormPreviewFallbacks, getOrderFormPreviewUrl } from "@/lib/order-form-style-previews";
 import { Image as ImageIcon } from "lucide-react";
 import {
   compressImageForUpload,
@@ -28,7 +35,7 @@ const fieldClass =
 const labelClass =
   "text-xs font-semibold uppercase tracking-wider text-muted-foreground";
 
-const MAX_PHOTOS_PER_LINE = 2;
+const MAX_PHOTOS_PER_LINE = 8;
 
 type PhotoSlot = { id: string; file: File };
 
@@ -137,7 +144,7 @@ function getStyleFromUrl(): string | null {
 }
 
 export function OrderForm() {
-  const SHIRT_PRICE_RUB = 4900;
+  const SHIRT_PRICE_RUB = 3999;
   const NETWORK_HINT_THRESHOLD = 2;
   const FETCH_TIMEOUT_MS = 12000;
   const ORDER_SUBMIT_TIMEOUT_MS = 90000;
@@ -145,6 +152,18 @@ export function OrderForm() {
   const [status, setStatus] = useState<"idle" | "sending" | "done" | "error">(
     "idle",
   );
+  const [deliveryCalcState, setDeliveryCalcState] = useState<
+    "idle" | "loading" | "error"
+  >("idle");
+  const [deliveryQuote, setDeliveryQuote] = useState<{
+    priceRub: number;
+    etaDays: string;
+    carrierLabel: string;
+    zoneLabel: string;
+    note: string;
+  } | null>(null);
+  const [lightboxSrc, setLightboxSrc] = useState("");
+  const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lines, setLines] = useState<OrderLineState[]>([createLine()]);
   /** Фото по строкам заказа; стабильный id — чтобы React не терял слот при одинаковых именах с телефона */
   const [linePhotos, setLinePhotos] = useState<PhotoSlot[][]>([[]]);
@@ -225,6 +244,53 @@ export function OrderForm() {
       prev.length <= 1 ? prev : prev.filter((_, i) => i !== index),
     );
   };
+
+  async function handleDeliveryEstimate() {
+    const addressInput = document.getElementById(
+      `${baseId}-address`,
+    ) as HTMLTextAreaElement | null;
+    const methodInput = document.getElementById(
+      `${baseId}-delivery`,
+    ) as HTMLSelectElement | null;
+
+    const address = addressInput?.value.trim() ?? "";
+    const deliveryMethod = methodInput?.value ?? "";
+
+    if (!address || !deliveryMethod) {
+      setDeliveryCalcState("error");
+      setDeliveryQuote(null);
+      return;
+    }
+
+    setDeliveryCalcState("loading");
+    setDeliveryQuote(null);
+
+    try {
+      const res = await fetchWithTimeout("/api/delivery-quote", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ address, deliveryMethod }),
+      });
+      if (!res.ok) throw new Error("delivery quote failed");
+      const data = (await res.json()) as {
+        ok: true;
+        quote: {
+          priceRub: number;
+          etaDays: string;
+          carrierLabel: string;
+          zoneLabel: string;
+          note: string;
+        };
+      };
+      setDeliveryQuote(data.quote);
+      setDeliveryCalcState("idle");
+      clearNetworkIssue();
+    } catch {
+      setDeliveryCalcState("error");
+      setDeliveryQuote(null);
+      noteNetworkIssue();
+    }
+  }
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -573,8 +639,12 @@ export function OrderForm() {
                       className={labelClass}
                       htmlFor={`${baseId}-dog-${index}`}
                     >
-                      Кличка — на том языке, на котором хотите видеть её на футболке
+                      Кличка на футболке
                     </label>
+                    <p className="mb-1.5 text-xs text-muted-foreground">
+                      Напишите само имя питомца так, как его печатать на футболке (кириллица или
+                      латиница — как вам нравится больше).
+                    </p>
                     <input
                       id={`${baseId}-dog-${index}`}
                       name={`items[${index}][dogName]`}
@@ -589,11 +659,205 @@ export function OrderForm() {
                     />
                   </div>
 
-                  <input
-                    type="hidden"
-                    name={`items[${index}][printStyle]`}
-                    value="life"
-                  />
+                  <div className="grid gap-5 sm:grid-cols-2">
+                    <div>
+                      <p className={labelClass}>Пол (линия футболки)</p>
+                      <div className="mt-2 flex flex-wrap gap-3">
+                        {shirtGenders.map((g) => (
+                          <label
+                            key={g.value}
+                            onClick={() => updateLine(index, { gender: g.value })}
+                            className={`flex cursor-pointer items-center gap-2 rounded-2xl border px-4 py-3 text-sm transition ${
+                              line.gender === g.value
+                                ? "border-dogood-pink bg-fuchsia-50 ring-2 ring-dogood-pink/25"
+                                : "border-fuchsia-200 bg-white hover:border-fuchsia-300"
+                            }`}
+                          >
+                            <input
+                              type="radio"
+                              name={`items[${index}][gender]`}
+                              value={g.value}
+                              checked={line.gender === g.value}
+                              onChange={() => updateLine(index, { gender: g.value })}
+                              className="sr-only"
+                            />
+                            {g.label}
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <p className={labelClass}>Размер</p>
+                      <div className="mt-2 flex flex-wrap gap-3">
+                        {shirtSizes.map((s) => (
+                          <label
+                            key={s.value}
+                            onClick={() => updateLine(index, { size: s.value })}
+                            className={`flex cursor-pointer items-center gap-2 rounded-2xl border px-4 py-3 text-sm transition ${
+                              line.size === s.value
+                                ? "border-dogood-pink bg-fuchsia-50 ring-2 ring-dogood-pink/25"
+                                : "border-fuchsia-200 bg-white hover:border-fuchsia-300"
+                            }`}
+                          >
+                            <input
+                              type="radio"
+                              name={`items[${index}][size]`}
+                              value={s.value}
+                              checked={line.size === s.value}
+                              onChange={() => updateLine(index, { size: s.value })}
+                              className="sr-only"
+                            />
+                            {s.label}
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-5">
+                    <div>
+                      <p className={labelClass}>Стиль принта</p>
+                      <div className="mt-2 grid grid-cols-3 gap-2 sm:gap-3">
+                        {printStyles.map((s) => {
+                          const selected = line.printStyle === s.value;
+                          const previewSrc = getOrderFormPreviewUrl(s.value);
+                          return (
+                            <label
+                              key={s.value}
+                              onClick={() => updateLine(index, { printStyle: s.value })}
+                              className={`cursor-pointer rounded-2xl border bg-white p-2 transition ${
+                                selected
+                                  ? "border-dogood-pink ring-2 ring-dogood-pink/30"
+                                  : "border-fuchsia-200 hover:border-fuchsia-300"
+                              }`}
+                            >
+                              <input
+                                type="radio"
+                                name={`items[${index}][printStyle]`}
+                                value={s.value}
+                                checked={selected}
+                                onChange={(e) =>
+                                  updateLine(index, { printStyle: e.target.value })
+                                }
+                                className="sr-only"
+                              />
+                              <div className="relative mb-2 aspect-square overflow-hidden rounded-xl bg-white">
+                                <ProductPhoto
+                                  src={previewSrc}
+                                  fallbacks={getOrderFormPreviewFallbacks(s.value)}
+                                  alt={s.label}
+                                  className="h-full w-full object-contain p-1"
+                                  style={{ width: "100%", height: "100%", objectFit: "contain" }}
+                                  loading="lazy"
+                                  decoding="async"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    updateLine(index, { printStyle: s.value });
+                                    setLightboxSrc(previewSrc);
+                                    setLightboxOpen(true);
+                                  }}
+                                  className="absolute bottom-1.5 right-1.5 rounded-full bg-white/90 px-2 py-1 text-[10px] font-semibold text-fuchsia-700 shadow-sm"
+                                  aria-label={`Открыть ${s.label} на весь экран`}
+                                >
+                                  Увеличить
+                                </button>
+                              </div>
+                              <span className="block text-center text-[10px] font-semibold leading-tight text-fuchsia-700 sm:text-[11px]">
+                                {s.label}
+                              </span>
+                              <div className="mt-1 flex items-center justify-center">
+                                <span
+                                  className={`h-3.5 w-3.5 rounded-full border transition ${
+                                    selected
+                                      ? "border-dogood-pink bg-dogood-pink"
+                                      : "border-fuchsia-300 bg-white"
+                                  }`}
+                                  aria-hidden
+                                />
+                              </div>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                  <div>
+                    <p className={labelClass}>Цвет футболки</p>
+                    <div className="mt-2 flex flex-wrap gap-3">
+                      {shirtColors.map((c) => (
+                        <label
+                          key={c.value}
+                          onClick={() => updateLine(index, { color: c.value })}
+                          className={`flex cursor-pointer items-center gap-2 rounded-2xl border px-4 py-3 text-sm transition ${
+                            line.color === c.value
+                              ? "border-dogood-pink bg-fuchsia-50 ring-2 ring-dogood-pink/25"
+                              : "border-fuchsia-200 bg-white hover:border-fuchsia-300"
+                          }`}
+                        >
+                          <input
+                            type="radio"
+                            name={`items[${index}][color]`}
+                            value={c.value}
+                            checked={line.color === c.value}
+                            onChange={() => updateLine(index, { color: c.value })}
+                            className="sr-only"
+                          />
+                          <span
+                            className={`h-4 w-4 rounded-full border-2 ${
+                              c.value === "black"
+                                ? "border-neutral-600 bg-neutral-900"
+                                : "border-fuchsia-300 bg-white"
+                            }`}
+                            aria-hidden
+                          />
+                          {c.label}
+                        </label>
+                      ))}
+                    </div>
+                    {line.printStyle === "rainy" ? (
+                      <p className="mt-2 text-xs text-muted-foreground">
+                        С этим стилем советуем белый цвет футболки.
+                      </p>
+                    ) : null}
+                  </div>
+                  {line.printStyle === "rainy" && line.color === "black" ? (
+                    <div>
+                      <p className={labelClass}>Цвет принта на чёрной футболке</p>
+                      <div className="mt-2 flex flex-wrap gap-3">
+                        {blackShirtPrintColors.map((c) => (
+                          <label
+                            key={c.value}
+                            onClick={() => updateLine(index, { printColor: c.value })}
+                            className={`flex cursor-pointer items-center gap-2 rounded-2xl border px-4 py-3 text-sm transition ${
+                              line.printColor === c.value
+                                ? "border-dogood-pink bg-fuchsia-50 ring-2 ring-dogood-pink/25"
+                                : "border-fuchsia-200 bg-white hover:border-fuchsia-300"
+                            }`}
+                          >
+                            <input
+                              type="radio"
+                              name={`items[${index}][printColor]`}
+                              value={c.value}
+                              checked={line.printColor === c.value}
+                              onChange={() => updateLine(index, { printColor: c.value })}
+                              className="sr-only"
+                            />
+                            {c.label}
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <input
+                      type="hidden"
+                      name={`items[${index}][printColor]`}
+                      value=""
+                    />
+                  )}
                 </>
               ) : (
                 <>
@@ -638,6 +902,14 @@ export function OrderForm() {
           );
         })}
 
+        <button
+          type="button"
+          onClick={addLine}
+          className="w-full rounded-2xl border border-dashed border-fuchsia-200 py-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground transition-colors hover:border-dogood-pink hover:text-dogood-pink"
+        >
+          + добавить ещё одну футболку
+        </button>
+
         <div className="rounded-2xl border border-fuchsia-200 bg-fuchsia-50/60 px-4 py-3 text-sm text-muted-foreground">
           Итого за футболки:{" "}
           <span className="font-semibold text-foreground">
@@ -645,23 +917,221 @@ export function OrderForm() {
           </span>
         </div>
 
+        <div className="border-t border-fuchsia-200 pt-6">
+          <label className={labelClass} htmlFor={`${baseId}-shelter`}>
+            Приют (обязательно)
+          </label>
+          <select
+            id={`${baseId}-shelter`}
+            name="shelterId"
+            required
+            className={fieldClass}
+          >
+            {sheltersForOrderForm.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.orderFormLabel ?? s.name}
+              </option>
+            ))}
+          </select>
+        </div>
+
         <div className="space-y-6 border-t border-fuchsia-200 pt-6">
           <h3 className="font-display text-lg font-bold uppercase tracking-wide text-foreground">
             Контакты
           </h3>
+          <div className="grid gap-5 sm:grid-cols-2">
+            <div>
+              <label className={labelClass} htmlFor={`${baseId}-lastname`}>
+                Фамилия (обязательно)
+              </label>
+              <input
+                id={`${baseId}-lastname`}
+                name="lastName"
+                required
+                autoComplete="family-name"
+                className={fieldClass}
+                placeholder="Фамилия"
+              />
+            </div>
+            <div>
+              <label className={labelClass} htmlFor={`${baseId}-firstname`}>
+                Имя (обязательно)
+              </label>
+              <input
+                id={`${baseId}-firstname`}
+                name="firstName"
+                required
+                autoComplete="given-name"
+                className={fieldClass}
+                placeholder="Имя"
+              />
+            </div>
+          </div>
           <div>
-            <label className={labelClass} htmlFor={`${baseId}-email`}>
-              Email (обязательно)
+            <label className={labelClass} htmlFor={`${baseId}-patronymic`}>
+              Отчество (необязательно)
             </label>
             <input
-              id={`${baseId}-email`}
-              name="email"
-              type="email"
-              required
-              autoComplete="email"
+              id={`${baseId}-patronymic`}
+              name="patronymic"
+              autoComplete="additional-name"
               className={fieldClass}
-              placeholder="you@example.com"
+              placeholder="Отчество"
             />
+          </div>
+          <div className="grid gap-5 sm:grid-cols-2">
+            <div>
+              <label className={labelClass} htmlFor={`${baseId}-email`}>
+                Email (обязательно)
+              </label>
+              <input
+                id={`${baseId}-email`}
+                name="email"
+                type="email"
+                required
+                autoComplete="email"
+                className={fieldClass}
+                placeholder="you@example.com"
+              />
+            </div>
+            <div>
+              <label className={labelClass} htmlFor={`${baseId}-phone`}>
+                Телефон (обязательно)
+              </label>
+              <input
+                id={`${baseId}-phone`}
+                name="phone"
+                type="tel"
+                required
+                autoComplete="tel"
+                className={fieldClass}
+                placeholder="+7 …"
+              />
+            </div>
+          </div>
+          <div>
+            <label className={labelClass} htmlFor={`${baseId}-promo`}>
+              Промокод (необязательно)
+            </label>
+            <input
+              id={`${baseId}-promo`}
+              name="promoCode"
+              className={fieldClass}
+              placeholder="Введите промокод, если есть"
+            />
+          </div>
+        </div>
+
+        <div className="space-y-4 border-t border-fuchsia-200 pt-6">
+          <h3 className="font-display text-lg font-bold uppercase tracking-wide text-foreground">
+            Доставка
+          </h3>
+          <div className="rounded-2xl border border-fuchsia-200 bg-white/80 p-4 text-sm text-muted-foreground">
+            <p>
+              <strong className="text-foreground">Доставка по всей России</strong>. Стоимость
+              рассчитывается после выбора службы и адреса пункта выдачи.
+            </p>
+            <p className="mt-2">
+              Доставка до <strong className="text-foreground">пункта выдачи</strong> выбранной
+              службы. <strong className="text-foreground">Оплата доставки при получении</strong>.
+            </p>
+            <p className="mt-2">
+              Адреса пунктов выдачи:{" "}
+              <Link
+                href="https://dostavka.yandex.ru/pickup-point/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline decoration-fuchsia-300 underline-offset-2 hover:text-fuchsia-700"
+              >
+                Яндекс Доставка
+              </Link>
+              {" · "}
+              <Link
+                href="https://www.cdek.ru/ru/offices/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline decoration-fuchsia-300 underline-offset-2 hover:text-fuchsia-700"
+              >
+                СДЭК
+              </Link>
+              .
+            </p>
+          </div>
+          <div>
+            <label className={labelClass} htmlFor={`${baseId}-delivery`}>
+              Способ доставки
+            </label>
+            <select
+              id={`${baseId}-delivery`}
+              name="deliveryMethod"
+              required
+              className={fieldClass}
+            >
+              {deliveryMethods.map((d) => (
+                <option key={d.value} value={d.value}>
+                  {d.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className={labelClass} htmlFor={`${baseId}-address`}>
+              Адрес пункта выдачи
+            </label>
+            <textarea
+              id={`${baseId}-address`}
+              name="address"
+              required
+              rows={4}
+              className={fieldClass}
+              placeholder="Укажите адрес удобного пункта выдачи выбранной службы доставки. Не забудьте указать город."
+            />
+          </div>
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              onClick={handleDeliveryEstimate}
+              className="rounded-full border border-fuchsia-300 bg-fuchsia-50 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-fuchsia-700 transition hover:bg-fuchsia-100"
+            >
+              {deliveryCalcState === "loading"
+                ? "считаем..."
+                : "рассчитать доставку"}
+            </button>
+            {deliveryQuote ? (
+              <div className="min-w-0 flex-1 space-y-1 text-sm text-foreground">
+                <p>
+                  {deliveryQuote.carrierLabel}:{" "}
+                  <span className="font-semibold">
+                    ~{deliveryQuote.priceRub.toLocaleString("ru-RU")} ₽
+                  </span>{" "}
+                  · {deliveryQuote.etaDays}
+                </p>
+              </div>
+            ) : null}
+            {deliveryCalcState === "error" ? (
+              <p className="text-sm text-red-500">
+                Укажите адрес пункта выдачи и выберите службу доставки.
+              </p>
+            ) : null}
+          </div>
+          {deliveryQuote ? (
+            <p className="text-xs text-muted-foreground">{deliveryQuote.note}</p>
+          ) : null}
+          <div>
+            <label className={labelClass} htmlFor={`${baseId}-comment`}>
+              Комментарий
+            </label>
+            <textarea
+              id={`${baseId}-comment`}
+              name="comment"
+              rows={2}
+              className={fieldClass}
+              placeholder="Любые пожелания по заказу"
+            />
+            <p className="mt-1 text-xs text-muted-foreground">
+              Если питомец экзотичный, напишите об этом здесь — посмотрим, что можно
+              сделать.
+            </p>
           </div>
         </div>
 
@@ -750,6 +1220,12 @@ export function OrderForm() {
           </p>
         ) : null}
       </form>
+      <ImageLightbox
+        open={lightboxOpen}
+        src={lightboxSrc}
+        alt="Стиль принта"
+        onClose={() => setLightboxOpen(false)}
+      />
     </Section>
   );
 }

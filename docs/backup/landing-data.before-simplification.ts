@@ -1,3 +1,4 @@
+// BACKUP COPY — not compiled, see docs/SITE-ROLLBACK.md
 /**
  * Витрина: три базовых дизайна.
  * Фото подставляются автоматически из папок `public/products/speed|rainy|life/`
@@ -21,7 +22,7 @@ export const catalogDesignTemplates: CatalogDesign[] = [
     id: "life",
     name: "«Life is better»",
     slug: "life-is-better",
-    priceRub: 4900,
+    priceRub: 3999,
     imageMain:
       "https://images.unsplash.com/photo-1618354691373-d851c43c8d0b?w=900&q=80",
     gallery: [
@@ -32,7 +33,43 @@ export const catalogDesignTemplates: CatalogDesign[] = [
     detailBullets: [
       "Плотный хлопок, продуманный крой, принт без «короба» на груди.",
       "В макете вместо шаблонной графики — портрет вашего питомца и кличка в стиле «Life is better».",
-      "4 900 ₽ — фиксированная цена футболки.",
+      "3 999 ₽ — фиксированная цена футболки.",
+    ],
+  },
+  {
+    id: "speed",
+    name: "«Я — скорость»",
+    slug: "ya-skorost",
+    priceRub: 3999,
+    imageMain:
+      "https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?w=900&q=80",
+    gallery: [
+      "https://images.unsplash.com/photo-1576566588028-4147f3842e27?w=600&q=80",
+      "https://images.unsplash.com/photo-1503341504253-dff4815485f1?w=600&q=80",
+    ],
+    shortLine: "Динамичный графический ритм, острые акценты.",
+    detailBullets: [
+      "Печать на плотном хлопке премиального качества, современный крой, оверсайз — подходит под разные фигуры.",
+      "В этом дизайне мы заменим графику на портрет вашего питомца и кличку — как при оформлении заказа.",
+      "3 999 ₽ за футболку.",
+    ],
+  },
+  {
+    id: "rainy",
+    name: "«No rainy days»",
+    slug: "no-rainy-days",
+    priceRub: 3999,
+    imageMain:
+      "https://images.unsplash.com/photo-1556821840-3a63f95609a7?w=900&q=80",
+    gallery: [
+      "https://images.unsplash.com/photo-1620799140408-ed534d60b329?w=600&q=80",
+      "https://images.unsplash.com/photo-1622445275463-afa2ab738c34?w=600&q=80",
+    ],
+    shortLine: "Спокойная палитра и характер без лишнего шума.",
+    detailBullets: [
+      "Тот же плотный хлопок и аккуратная посадка: вещь, которую хочется носить каждый день.",
+      "Мы встроим портрет питомца и имя в готовую композицию стиля «No rainy days».",
+      "3 999 ₽ — фиксированная цена футболки.",
     ],
   },
 ];
@@ -119,9 +156,11 @@ export const shelters: Shelter[] = [
   },
 ];
 
-/** Единственный стиль принта на сайте (speed/rainy временно скрыты — см. docs/SITE-ROLLBACK.md) */
+/** Три стиля принта = три дизайна витрины */
 export const printStyles = [
   { value: "life", label: "«Life is better»" },
+  { value: "speed", label: "«Я — скорость»" },
+  { value: "rainy", label: "«No rainy days»" },
 ] as const;
 
 export const shirtColors = [
