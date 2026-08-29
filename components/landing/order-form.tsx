@@ -663,6 +663,18 @@ export function OrderForm() {
               placeholder="you@example.com"
             />
           </div>
+          <div>
+            <label className={labelClass} htmlFor={`${baseId}-comment`}>
+              Комментарии
+            </label>
+            <textarea
+              id={`${baseId}-comment`}
+              name="comment"
+              rows={3}
+              className={`${fieldClass} min-h-[5.5rem] resize-y`}
+              placeholder="Пожелания по заказу, срочность, особенности питомца"
+            />
+          </div>
         </div>
 
         <div className="space-y-4 rounded-2xl border border-fuchsia-200 bg-fuchsia-50/60 p-4 text-sm text-muted-foreground">
