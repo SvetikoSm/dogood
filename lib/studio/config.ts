@@ -99,9 +99,10 @@ export function getStudioMaxConcurrentLanes(): number {
 }
 
 /**
- * Fair-only mode: the pipeline processes ONLY mode="fair" orders (the
- * @yourtailbot client bot). Website/sheet orders are handled manually while
- * the fair event runs. Flip STUDIO_FAIR_ONLY off afterwards to resume them.
+ * Fair-only mode: the pipeline skips website/sheet orders (mode="full") while
+ * the fair event runs; they are handled manually instead. Fair-bot orders and
+ * the owner’s manual Telegram orders still run. Flip STUDIO_FAIR_ONLY off
+ * afterwards to resume website orders.
  */
 export function isStudioFairOnly(): boolean {
   return process.env.STUDIO_FAIR_ONLY?.trim() === "true";

@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, eq, inArray, lt, or } from "drizzle-orm";
+import { and, eq, inArray, lt, ne, or } from "drizzle-orm";
 
 import {
   getStudioMaxConcurrentLanes,
@@ -403,7 +403,9 @@ function laneKey(orderId: string, stage: string): string {
  * customer is standing at the stand waiting; website orders are not urgent),
  * then oldest order first within each group, capped at `limit`. Lanes still
  * in retry backoff are skipped. When STUDIO_FAIR_ONLY is set, website/sheet
- * orders are excluded entirely instead of just deprioritized.
+ * orders (mode="full") are excluded entirely instead of just deprioritized.
+ * The owner’s manual Telegram orders keep running: those are deliberate
+ * one-off requests made during the event, not the website backlog.
  */
 async function collectRunnableLanes(limit: number): Promise<Lane[]> {
   const db = getStudioDb();
@@ -418,7 +420,7 @@ async function collectRunnableLanes(limit: number): Promise<Lane[]> {
           inArray(schema.studioOrders.status, [...FINAL_WORK_STATUSES]),
           eq(schema.studioOrders.status, "in_progress"),
         ),
-        fairOnly ? eq(schema.studioOrders.mode, "fair") : undefined,
+        fairOnly ? ne(schema.studioOrders.mode, "full") : undefined,
       ),
     );
   if (!orders.length) return [];

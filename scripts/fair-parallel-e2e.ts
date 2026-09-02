@@ -31,7 +31,11 @@ const MOCK_PNG_BASE64 =
  * moves it straight to in_progress instead of running FETCH_DRIVE_PHOTOS —
  * which would otherwise make a real Google Drive API call for a fake folder id.
  */
-async function seedWebsiteOrder(id: string, createdAt?: Date): Promise<void> {
+async function seedWebsiteOrder(
+  id: string,
+  createdAt?: Date,
+  mode: "full" | "dog_text" = "full",
+): Promise<void> {
   const db = getStudioDb();
   await db.insert(schema.studioOrders).values({
     id,
@@ -41,7 +45,7 @@ async function seedWebsiteOrder(id: string, createdAt?: Date): Promise<void> {
     petNameScript: "cyrillic",
     designSlug: "life",
     status: "assets_loaded",
-    mode: "full",
+    mode,
     sheetPayloadJson: "{}",
     ...(createdAt ? { createdAt } : {}),
   });
@@ -321,6 +325,11 @@ async function main() {
   const websiteOrderIds = ["TEST_WEBSITE_ORDER_1", "TEST_WEBSITE_ORDER_2"];
   for (const id of websiteOrderIds) await seedWebsiteOrder(id);
 
+  // The owner’s own manual Telegram order must still run during the event:
+  // it is a deliberate one-off request, not part of the website backlog.
+  const manualOrderId = "TEST_MANUAL_ORDER_1";
+  await seedWebsiteOrder(manualOrderId, undefined, "dog_text");
+
   process.env.STUDIO_FAIR_ONLY = "true";
   try {
     const fairOnlyTick = await runStudioPipelineTick();
@@ -338,12 +347,19 @@ async function main() {
     if (fairOnlyRuns.length === 0) {
       throw new Error("fair-only mode failed: the fair order itself did not progress");
     }
+    const manualRuns = await stepRunsFor(manualOrderId);
+    if (manualRuns.length === 0) {
+      throw new Error(
+        "fair-only mode failed: the owner’s manual order was excluded from the pipeline",
+      );
+    }
     console.log(
-      `fair-only mode OK: website orders untouched (0 step runs each), fair order progressed (${fairOnlyRuns.length} step run(s))`,
+      `fair-only mode OK: website orders untouched (0 step runs each), fair order progressed (${fairOnlyRuns.length} step run(s)), manual order progressed (${manualRuns.length} step run(s))`,
     );
   } finally {
     process.env.STUDIO_FAIR_ONLY = "";
     for (const id of websiteOrderIds) await removeOrder(id);
+    await removeOrder(manualOrderId);
     await removeFairClient(fairOnlyChat);
   }
 

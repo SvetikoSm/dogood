@@ -11,6 +11,7 @@ import {
   type FairResult,
 } from "@/lib/studio/telegram/fair-flow";
 import { getEnvRaw } from "@/lib/studio/runtime-env";
+import { claimTelegramUpdate } from "@/lib/studio/telegram/update-dedupe";
 
 /** Persistent server (VPS) can finish this after the 200; keeps Telegram snappy. */
 function kickTick() {
@@ -29,6 +30,7 @@ function after(result: FairResult) {
  * 200 immediately, do the real work after.
  */
 async function processUpdate(body: {
+  update_id?: number;
   message?: {
     text?: string;
     chat?: { id?: number };
@@ -41,6 +43,12 @@ async function processUpdate(body: {
   };
 }) {
   await ensureStudioSchema();
+
+  // Telegram replays any update whose offset was not confirmed; handle once.
+  if (!(await claimTelegramUpdate("client", body.update_id))) {
+    console.warn("[client webhook] duplicate update", body.update_id);
+    return;
+  }
 
   const cb = body.callback_query;
   if (cb?.id) {

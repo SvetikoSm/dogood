@@ -13,6 +13,7 @@ import {
   type ManualResult,
 } from "@/lib/studio/telegram/manual-flow";
 import { runStudioPipelineTick } from "@/lib/studio/pipeline/orchestrator";
+import { claimTelegramUpdate } from "@/lib/studio/telegram/update-dedupe";
 import { ensureStudioSchema } from "@/lib/studio/db/ensure-schema";
 import { telegramApiBase } from "@/lib/studio/telegram/api-base";
 import { tgFetch } from "@/lib/studio/telegram/tg-fetch";
@@ -46,6 +47,7 @@ function afterManual(result: ManualResult) {
  * outbound Bot API calls longer than necessary.
  */
 async function processUpdate(body: {
+  update_id?: number;
   message?: {
     text?: string;
     caption?: string;
@@ -59,6 +61,12 @@ async function processUpdate(body: {
   };
 }) {
   await ensureStudioSchema();
+
+  // Telegram replays any update whose offset was not confirmed; handle once.
+  if (!(await claimTelegramUpdate("owner", body.update_id))) {
+    console.warn("[owner webhook] duplicate update", body.update_id);
+    return;
+  }
 
   const token = process.env.TELEGRAM_BOT_TOKEN?.trim();
 
