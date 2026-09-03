@@ -10,6 +10,7 @@ import { getStudioDb, schema } from "@/lib/studio/db";
 import { isStudioMockMode } from "@/lib/studio/env";
 import { absoluteFromStudioRelative } from "@/lib/studio/paths";
 import { isParallelStageMode } from "@/lib/studio/pipeline/modes";
+import { manualChatIdFromPayload } from "@/lib/studio/telegram/manual-flow";
 import { telegramApiBase } from "@/lib/studio/telegram/api-base";
 import { tgFetch } from "@/lib/studio/telegram/tg-fetch";
 
@@ -27,9 +28,13 @@ export function isTelegramReviewEnabled(): boolean {
   return Boolean(getToken() && getChatId() && process.env.OPS_NOTIFY_TELEGRAM?.trim() === "true");
 }
 
-async function tgPost(method: string, body: Record<string, unknown>) {
+async function tgPostTo(
+  chatId: string,
+  method: string,
+  body: Record<string, unknown>,
+) {
   const token = getToken();
-  if (!token) return { ok: false as const, error: "no token" };
+  if (!token || !chatId) return { ok: false as const, error: "no token or chat" };
   const res = await tgFetch(`${BOT_API()}/bot${token}/${method}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -40,13 +45,19 @@ async function tgPost(method: string, body: Record<string, unknown>) {
   return { ok: true as const, raw };
 }
 
-async function sendPhoto(
+async function tgPost(method: string, body: Record<string, unknown>) {
+  const chatId = getChatId();
+  if (!chatId) return { ok: false as const, error: "no chat" };
+  return tgPostTo(chatId, method, body);
+}
+
+async function sendPhotoTo(
+  chatId: string,
   pathAbs: string,
   caption: string,
   replyMarkup?: Record<string, unknown>,
 ) {
   const token = getToken();
-  const chatId = getChatId();
   if (!token || !chatId) return { ok: false, error: "telegram not configured" };
   const buf = await fs.readFile(pathAbs);
   const form = new FormData();
@@ -57,6 +68,16 @@ async function sendPhoto(
   const res = await tgFetch(`${BOT_API()}/bot${token}/sendPhoto`, { method: "POST", body: form });
   if (!res.ok) return { ok: false, error: await res.text() };
   return { ok: true };
+}
+
+async function sendPhoto(
+  pathAbs: string,
+  caption: string,
+  replyMarkup?: Record<string, unknown>,
+) {
+  const chatId = getChatId();
+  if (!chatId) return { ok: false, error: "telegram not configured" };
+  return sendPhotoTo(chatId, pathAbs, caption, replyMarkup);
 }
 
 /** Plain-text ops alert to the review chat (e.g. an order parked as error). */
@@ -93,8 +114,6 @@ const rejectNoCommentKeyboard = {
 export async function sendStudioReviewRequest(orderId: string, stage: "dog" | "text" | "final"): Promise<
   { ok: true } | { ok: false; error: string }
 > {
-  if (!isTelegramReviewEnabled()) return { ok: false, error: "telegram disabled" };
-
   const db = getStudioDb();
   const order = await db
     .select()
@@ -102,6 +121,15 @@ export async function sendStudioReviewRequest(orderId: string, stage: "dog" | "t
     .where(eq(schema.studioOrders.id, orderId))
     .get();
   if (!order) return { ok: false, error: "order not found" };
+
+  const manualChatId = manualChatIdFromPayload(order.sheetPayloadJson);
+  const reviewChatId = manualChatId || getChatId();
+  const tokenOk = Boolean(getToken());
+  const notifyEnabled =
+    process.env.OPS_NOTIFY_TELEGRAM?.trim() === "true" || Boolean(manualChatId);
+  if (!tokenOk || !reviewChatId || !notifyEnabled) {
+    return { ok: false, error: "telegram disabled" };
+  }
 
   const style = styleDisplayName(order.designSlug as StyleSlug);
   const headerLines = [
@@ -125,7 +153,7 @@ export async function sendStudioReviewRequest(orderId: string, stage: "dog" | "t
   );
   const header = headerLines.join("\n");
 
-  await tgPost("sendMessage", { chat_id: getChatId(), text: header });
+  await tgPostTo(reviewChatId, "sendMessage", { chat_id: reviewChatId, text: header });
 
   // Client photos are only useful on the dog stage (judging likeness). On
   // text/final they just confuse the reviewer into thinking the wrong image
@@ -139,7 +167,7 @@ export async function sendStudioReviewRequest(orderId: string, stage: "dog" | "t
 
     for (const p of photos) {
       const abs = absoluteFromStudioRelative(p.localRelativePath);
-      await sendPhoto(abs, `Client photo: ${p.originalName}`);
+      await sendPhotoTo(reviewChatId, abs, `Client photo: ${p.originalName}`);
     }
   }
 
@@ -169,14 +197,15 @@ export async function sendStudioReviewRequest(orderId: string, stage: "dog" | "t
   }
 
   if (artifact) {
-    await sendPhoto(
+    await sendPhotoTo(
+      reviewChatId,
       absoluteFromStudioRelative(artifact),
       `Generated ${stage} — ${order.petNameRaw}`,
       approvalKeyboard(stage, order.sheetOrderId),
     );
   } else {
-    await tgPost("sendMessage", {
-      chat_id: getChatId(),
+    await tgPostTo(reviewChatId, "sendMessage", {
+      chat_id: reviewChatId,
       text: `No ${stage} artifact found for ${order.sheetOrderId} — check /studio/orders.`,
       reply_markup: approvalKeyboard(stage, order.sheetOrderId),
     });

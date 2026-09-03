@@ -2,7 +2,7 @@ import "server-only";
 
 import { randomUUID } from "node:crypto";
 
-import { eq } from "drizzle-orm";
+import { and, desc, eq, ne, sql } from "drizzle-orm";
 
 import { normalizeStyleId, styleDisplayName } from "@/lib/ops/style-masters";
 import type { StyleSlug } from "@/lib/ops/style-masters";
@@ -146,9 +146,72 @@ async function deleteDraftOrder(orderId: string) {
 
 /* ---------------- manual order creation ---------------- */
 
+function manualPayload(chatId: string, extra: Record<string, unknown> = {}): string {
+  return JSON.stringify({ manual: true, manualChatId: chatId, ...extra });
+}
+
+/** Chat that started a manual Telegram job (stored in sheetPayloadJson). */
+export function manualChatIdFromPayload(raw: string): string | undefined {
+  try {
+    const v = JSON.parse(raw) as { manualChatId?: unknown };
+    return typeof v.manualChatId === "string" && v.manualChatId.trim()
+      ? v.manualChatId.trim()
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+async function pinManualChat(orderId: string, chatId: string): Promise<void> {
+  const [row] = await getStudioDb()
+    .select({ sheetPayloadJson: schema.studioOrders.sheetPayloadJson })
+    .from(schema.studioOrders)
+    .where(eq(schema.studioOrders.id, orderId))
+    .limit(1);
+  if (!row) return;
+  let payload: Record<string, unknown>;
+  try {
+    payload = JSON.parse(row.sheetPayloadJson) as Record<string, unknown>;
+  } catch {
+    payload = { manual: true };
+  }
+  payload.manualChatId = chatId;
+  await getStudioDb()
+    .update(schema.studioOrders)
+    .set({ sheetPayloadJson: JSON.stringify(payload), updatedAt: new Date() })
+    .where(eq(schema.studioOrders.id, orderId));
+}
+
+/** Latest manual order for this chat that is still being assembled or generated. */
+async function findActiveManualOrderForChat(chatId: string) {
+  const rows = await getStudioDb()
+    .select()
+    .from(schema.studioOrders)
+    .where(
+      and(
+        sql`json_extract(${schema.studioOrders.sheetPayloadJson}, '$.manualChatId') = ${chatId}`,
+        ne(schema.studioOrders.status, "completed"),
+        ne(schema.studioOrders.status, "error"),
+      ),
+    )
+    .orderBy(desc(schema.studioOrders.createdAt))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+async function photoFileIdInOrder(orderId: string, fileId: string): Promise<boolean> {
+  const needle = `_${fileId}`;
+  const rows = await getStudioDb()
+    .select({ localRelativePath: schema.studioOrderPhotos.localRelativePath })
+    .from(schema.studioOrderPhotos)
+    .where(eq(schema.studioOrderPhotos.orderId, orderId));
+  return rows.some((r) => r.localRelativePath.includes(needle));
+}
+
 async function createManualOrder(
   mode: ManualMode,
   slug: StyleSlug | "",
+  chatId: string,
 ): Promise<string> {
   const db = getStudioDb();
   const id = randomUUID();
@@ -163,7 +226,7 @@ async function createManualOrder(
     designSlug: slug,
     status: "draft",
     mode,
-    sheetPayloadJson: JSON.stringify({ manual: true }),
+    sheetPayloadJson: manualPayload(chatId),
   });
   return id;
 }
@@ -241,6 +304,7 @@ async function startPackOrder(
       updatedAt: new Date(),
     })
     .where(eq(schema.studioOrders.id, orderId));
+  await pinManualChat(orderId, chatId);
   await clearSession(chatId);
   await tgSend(
     chatId,
@@ -261,10 +325,25 @@ function hasInProgressDraft(s: Awaited<ReturnType<typeof getSession>>): boolean 
 
 export async function handleManualCallback(chatId: string, data: string): Promise<ManualResult> {
   if (data === "mm:pack" || data === "mm:dog" || data === "mm:name") {
+    const targetFlow = data === "mm:pack" ? "pack" : data === "mm:dog" ? "dog" : "name";
+    const existing = await getSession(chatId);
+    if (existing?.flow === targetFlow && hasInProgressDraft(existing)) {
+      return staleButton(
+        chatId,
+        `сценарий «${targetFlow}» уже идёт — продолжайте текущий шаг или нажмите ✖️ Отмена`,
+      );
+    }
+    const activeOrder = await findActiveManualOrderForChat(chatId);
+    if (activeOrder && activeOrder.status !== "draft") {
+      await tgSend(
+        chatId,
+        `У вас уже идёт генерация (${activeOrder.petNameRaw || activeOrder.sheetOrderId}).\nПодождите — пришлю картинки на проверку. Чтобы начать новый заказ, дождитесь завершения или отмените текущий в /studio/orders.`,
+      );
+      return { handled: true };
+    }
     // Stale menu buttons (an old copy of /menu still sitting in the chat) must
     // not silently wipe an in-progress draft of ANY flow — dog, name, or pack.
-    const existing = await getSession(chatId);
-    if (hasInProgressDraft(existing) && existing!.flow !== (data === "mm:pack" ? "pack" : data === "mm:dog" ? "dog" : "name")) {
+    if (hasInProgressDraft(existing) && existing!.flow !== targetFlow) {
       return staleButton(
         chatId,
         `уже идёт сценарий «${existing!.flow}» — нажмите ✖️ Отмена в текущем шаге или /menu после отмены`,
@@ -272,7 +351,7 @@ export async function handleManualCallback(chatId: string, data: string): Promis
     }
     await resetManualSession(chatId);
     if (data === "mm:pack") {
-      const orderId = await createManualOrder("dog_text", "");
+      const orderId = await createManualOrder("dog_text", "", chatId);
       await setSession(chatId, { flow: "pack", awaiting: "photos", style: "", orderId });
       await tgSend(
         chatId,
@@ -341,7 +420,7 @@ export async function handleManualCallback(chatId: string, data: string): Promis
       if (s.awaiting !== "style") {
         return staleButton(chatId, `ожидался выбор стиля, сейчас «${s.awaiting}»`);
       }
-      const orderId = await createManualOrder("dog_only", slug);
+      const orderId = await createManualOrder("dog_only", slug, chatId);
       await setSession(chatId, { flow, style: slug, awaiting: "photos", orderId });
       await tgSend(
         chatId,
@@ -352,7 +431,7 @@ export async function handleManualCallback(chatId: string, data: string): Promis
       if (s.awaiting !== "style") {
         return staleButton(chatId, `ожидался выбор стиля, сейчас «${s.awaiting}»`);
       }
-      const orderId = await createManualOrder("name_only", slug);
+      const orderId = await createManualOrder("name_only", slug, chatId);
       await setSession(chatId, { flow, style: slug, awaiting: "name", orderId });
       await tgSend(
         chatId,
@@ -375,6 +454,7 @@ export async function handleManualCallback(chatId: string, data: string): Promis
       .update(schema.studioOrders)
       .set({ status: "assets_loaded", updatedAt: new Date() })
       .where(eq(schema.studioOrders.id, s.orderId));
+    await pinManualChat(s.orderId, chatId);
     await clearSession(chatId);
     await tgSend(chatId, `Принято (${n} фото). Генерирую иллюстрацию — пришлю на проверку.`);
     return { handled: true, triggerTick: true };
@@ -392,8 +472,29 @@ export async function handleManualPhoto(
   caption?: string,
 ): Promise<ManualResult> {
   const s = await getSession(chatId);
-  if (!s || !s.orderId) return { handled: false };
+  if (!s || !s.orderId) {
+    const active = await findActiveManualOrderForChat(chatId);
+    if (active && active.status !== "draft") {
+      await tgSend(
+        chatId,
+        `Генерация уже запущена (${active.petNameRaw || "заказ"}). Подождите — пришлю иллюстрации на проверку в этот чат.`,
+      );
+      return { handled: true };
+    }
+    return { handled: false };
+  }
+  if (s.flow === "pack" && s.awaiting === "style") {
+    await tgSend(
+      chatId,
+      "Стиль уже выбран — генерация запущена. Подождите, пришлю картинки на проверку.",
+    );
+    return { handled: true };
+  }
   if (s.flow === "dog" && s.awaiting === "photos") {
+    if (await photoFileIdInOrder(s.orderId, fileId)) {
+      await tgSend(chatId, "Это фото уже добавлено. Пришлите другое или нажмите «Сгенерировать».");
+      return { handled: true };
+    }
     const n = await countPhotos(s.orderId);
     const ok = await downloadTelegramFileToOrder(s.orderId, fileId, n);
     if (ok) {
@@ -409,6 +510,10 @@ export async function handleManualPhoto(
   }
   if (s.flow === "pack" && (s.awaiting === "photos" || s.awaiting === "name")) {
     // Allow late photos even after they moved on to typing the name.
+    if (await photoFileIdInOrder(s.orderId, fileId)) {
+      await tgSend(chatId, "Это фото уже добавлено.");
+      return { handled: true };
+    }
     const n = await countPhotos(s.orderId);
     const ok = await downloadTelegramFileToOrder(s.orderId, fileId, n);
     if (!ok) {
@@ -472,6 +577,7 @@ export async function handleManualText(chatId: string, text: string): Promise<Ma
         updatedAt: new Date(),
       })
       .where(eq(schema.studioOrders.id, s.orderId));
+    await pinManualChat(s.orderId, chatId);
     await clearSession(chatId);
     await tgSend(chatId, `Кличка «${name}». Генерирую надпись — пришлю на проверку.`);
     return { handled: true, triggerTick: true };
