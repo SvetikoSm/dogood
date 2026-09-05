@@ -317,7 +317,8 @@ function doPost(e) {
           var blob = Utilities.newBlob(bytes, mime, name);
           var driveFile = orderFolder.createFile(blob);
           trySetAnyoneWithLink_(driveFile, sharingErrors, f.field || String(fi));
-          var viewUrl = drivePublicViewUrl(driveFile.getId());
+          // getUrl() — нормальная ссылка /file/d/…/view; uc?export=view часто 404 на iOS/Sheets
+          var viewUrl = driveFile.getUrl();
           fileLinks.push(viewUrl);
 
           var itemIndex = parseItemIndex(f.field);
@@ -388,8 +389,9 @@ function handleStudioUpload_(body) {
   }
 }
 
+/** Запасной формат ссылки, если нет объекта File (не использовать uc?export=view — 404 на мобильных). */
 function drivePublicViewUrl(fileId) {
-  return "https://drive.google.com/uc?export=view&id=" + encodeURIComponent(fileId);
+  return "https://drive.google.com/file/d/" + encodeURIComponent(fileId) + "/view";
 }
 
 /** Убирает префикс data:image/...;base64, и пробелы — иначе decode падает или даёт пусто. */
@@ -492,7 +494,7 @@ function mergePhotosIntoExistingOrder_(sheet, firstDataRow, order, files, parent
         var blob = Utilities.newBlob(bytes, mime, name);
         var driveFile = orderFolder.createFile(blob);
         trySetAnyoneWithLink_(driveFile, sharingErrors, f.field || String(fi));
-        var viewUrl = drivePublicViewUrl(driveFile.getId());
+        var viewUrl = driveFile.getUrl();
         fileLinks.push(viewUrl);
         var itemIndex = parsePhotoFieldLineIndex_(f.field);
         var mapKey = itemIndex === null ? "_unmapped" : String(itemIndex);
